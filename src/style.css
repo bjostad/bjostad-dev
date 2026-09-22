@@ -30,8 +30,13 @@ body {
   background: var(--bg-base);
   color: var(--text-primary);
   font-family: var(--font-sans);
-  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1px);
-  background-size: 24px 24px;
+}
+
+#bg-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  display: block;
 }
 
 #app {
@@ -132,6 +137,7 @@ body {
 }
 
 .edge {
+  fill: none;
   stroke: var(--line-edge);
   stroke-width: 1;
   transition: opacity 0.15s ease, stroke 0.15s ease;
@@ -140,7 +146,7 @@ body {
 .edge-built-with {
   stroke-dasharray: 4 4;
   stroke: var(--accent-secondary);
-  opacity: 0.55;
+  opacity: 0.45;
 }
 
 .edge-worked-at,

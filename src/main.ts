@@ -3,6 +3,10 @@ import { buildGraph } from "./data/graph";
 import { GraphCanvas } from "./graph/canvas";
 import { DetailPanel } from "./graph/panel";
 import { renderListView } from "./graph/listview";
+import { initBackground } from "./background";
+
+const bgCanvas = document.querySelector<HTMLCanvasElement>("#bg-canvas")!;
+initBackground(bgCanvas);
 
 const data = buildGraph();
 

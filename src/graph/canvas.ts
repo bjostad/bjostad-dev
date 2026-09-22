@@ -13,14 +13,26 @@ export class GraphCanvas {
   private data: GraphData;
   private positions: Map<string, LayoutNode>;
   private nodeEls = new Map<string, HTMLElement>();
-  private edgeEls: { from: string; to: string; el: SVGLineElement }[] = [];
+  private nodeSize = new Map<string, { w: number; h: number }>();
+  private edgeEls: { from: string; to: string; el: SVGPathElement }[] = [];
+  private skillColor = new Map<string, string>();
   private onExpand: (node: GraphNode) => void;
 
   constructor(root: HTMLElement, data: GraphData, onExpand: (node: GraphNode) => void) {
     this.root = root;
     this.data = data;
     this.onExpand = onExpand;
-    this.positions = this.loadPositions() ?? computeInitialLayout(data);
+    const stored = this.loadPositions();
+    this.positions = stored ?? computeInitialLayout(data);
+
+    // Each skill gets its own hue (golden-angle spacing keeps any count of
+    // skills visually spread out rather than clustering) so its outgoing
+    // lines to projects are distinguishable from every other skill's.
+    const skills = data.nodes.filter((n) => n.type === "skill");
+    skills.forEach((n, i) => {
+      const hue = Math.round((i * 137.508) % 360);
+      this.skillColor.set(n.id, `hsl(${hue}, 62%, 66%)`);
+    });
 
     this.root.innerHTML = "";
     this.root.classList.add("graph-root");
@@ -39,6 +51,10 @@ export class GraphCanvas {
 
     this.buildEdges();
     this.buildNodes();
+    // Only a freshly computed layout gets the no-overlap guarantee — a
+    // stored layout may include positions the user dragged on top of each
+    // other on purpose, and that choice should stick across reloads.
+    if (!stored) this.resolveOverlaps();
     this.center();
     this.render();
 
@@ -78,10 +94,12 @@ export class GraphCanvas {
 
   private buildEdges() {
     for (const e of this.data.edges) {
-      const line = document.createElementNS(SVG_NS, "line");
-      line.setAttribute("class", `edge edge-${e.kind}`);
-      this.svg.appendChild(line);
-      this.edgeEls.push({ from: e.from, to: e.to, el: line });
+      const el = document.createElementNS(SVG_NS, "path");
+      el.setAttribute("class", `edge edge-${e.kind}`);
+      const color = this.skillColor.get(e.from);
+      if (color) el.style.stroke = color;
+      this.svg.appendChild(el);
+      this.edgeEls.push({ from: e.from, to: e.to, el });
     }
   }
 
@@ -117,6 +135,7 @@ export class GraphCanvas {
 
       this.nodesLayer.appendChild(el);
       this.nodeEls.set(node.id, el);
+      this.nodeSize.set(node.id, { w: el.offsetWidth, h: el.offsetHeight });
     }
   }
 
@@ -221,25 +240,172 @@ export class GraphCanvas {
       const p = this.positions.get(id)!;
       el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
     }
+    this.routeEdges();
+  }
+
+  /**
+   * Schema-diagram-style connectors: each leaves its source at the dead
+   * center of the top or bottom edge (whichever faces the destination),
+   * runs straight for a stub, turns once, crosses to the destination's x,
+   * turns again, and enters at the dead center of the facing edge — but
+   * with two refinements over a naive per-edge elbow:
+   *
+   *  - The turn (the horizontal segment) sits past *every* box in the
+   *    source's row, not just the source's own edge, so it never cuts
+   *    through a neighbor that happens to be staggered lower/higher.
+   *  - Different origins get their own turn level, stacked outward in
+   *    steps, so unrelated lines don't run along the same row of pixels —
+   *    edges sharing an origin still share a level (and the stub above
+   *    it), since that shared trunk is the point of a fan-out.
+   *
+   * Multiple edges landing on the same project are additionally spread
+   * across its top edge instead of all converging on one pixel.
+   */
+  private routeEdges() {
+    const ROW_MARGIN = 14; // clearance past the farthest box in a row
+    const BAND_GAP = 9; // minimum vertical distance between different origins' turn levels
+    const ENTRY_GAP = 14; // minimum horizontal distance between entry points on one box
+
+    const typeById = new Map(this.data.nodes.map((n) => [n.id, n.type]));
+
+    // Row extents (top/bottom-most box edge) per node type, from current
+    // positions + real measured sizes.
+    const rowTop = new Map<GraphNode["type"], number>();
+    const rowBottom = new Map<GraphNode["type"], number>();
+    for (const n of this.data.nodes) {
+      const p = this.positions.get(n.id);
+      const s = this.nodeSize.get(n.id);
+      if (!p || !s) continue;
+      rowTop.set(n.type, Math.min(rowTop.get(n.type) ?? Infinity, p.y - s.h / 2));
+      rowBottom.set(n.type, Math.max(rowBottom.get(n.type) ?? -Infinity, p.y + s.h / 2));
+    }
+
+    // Each distinct origin (source node) gets its own turn-level index,
+    // ordered left-to-right, so bands stack predictably instead of
+    // randomly overlapping.
+    const originIndex = new Map<string, number>();
+    {
+      const byRow = new Map<GraphNode["type"], string[]>();
+      const seen = new Set<string>();
+      for (const e of this.data.edges) {
+        if (seen.has(e.from)) continue;
+        seen.add(e.from);
+        const list = byRow.get(typeById.get(e.from)!) ?? [];
+        list.push(e.from);
+        byRow.set(typeById.get(e.from)!, list);
+      }
+      for (const list of byRow.values()) {
+        list.sort((a, b) => this.positions.get(a)!.x - this.positions.get(b)!.x);
+        list.forEach((id, i) => originIndex.set(id, i));
+      }
+    }
+
+    // Multiple edges landing on the same project get spread across its
+    // top edge (ordered by their source's x) instead of all entering at
+    // the exact same point.
+    const incomingByDest = new Map<string, string[]>();
+    for (const e of this.data.edges) {
+      const list = incomingByDest.get(e.to) ?? [];
+      list.push(e.from);
+      incomingByDest.set(e.to, list);
+    }
+    for (const list of incomingByDest.values()) {
+      list.sort((a, b) => this.positions.get(a)!.x - this.positions.get(b)!.x);
+    }
+
     for (const { from, to, el } of this.edgeEls) {
       const a = this.positions.get(from);
       const b = this.positions.get(to);
       if (!a || !b) continue;
-      el.setAttribute("x1", String(a.x));
-      el.setAttribute("y1", String(a.y));
-      el.setAttribute("x2", String(b.x));
-      el.setAttribute("y2", String(b.y));
+
+      const fromType = typeById.get(from)!;
+      const toType = typeById.get(to)!;
+      const down = b.y >= a.y; // destination at/below source -> exit bottom, enter top
+
+      const sizeA = this.nodeSize.get(from);
+      const sizeB = this.nodeSize.get(to);
+      const exitY = down ? a.y + (sizeA?.h ?? 0) / 2 : a.y - (sizeA?.h ?? 0) / 2;
+      const entryY = down ? b.y - (sizeB?.h ?? 0) / 2 : b.y + (sizeB?.h ?? 0) / 2;
+
+      // Turn level: past every box in the source's row, stacked further
+      // out per origin, but never past every box in the destination's row
+      // (so a crowded source row can't push the turn into the next row).
+      const rowClear = down ? rowBottom.get(fromType)! + ROW_MARGIN : rowTop.get(fromType)! - ROW_MARGIN;
+      const destClear = down ? rowTop.get(toType)! - ROW_MARGIN : rowBottom.get(toType)! + ROW_MARGIN;
+      const idx = originIndex.get(from) ?? 0;
+      let turnY = down ? rowClear + idx * BAND_GAP : rowClear - idx * BAND_GAP;
+      turnY = down ? Math.min(turnY, destClear) : Math.max(turnY, destClear);
+
+      // Entry x: spread multiple incoming edges across a project's width.
+      let entryX = b.x;
+      if (toType === "project") {
+        const incoming = incomingByDest.get(to)!;
+        const n = incoming.length;
+        if (n > 1) {
+          const boxW = sizeB?.w ?? 140;
+          const spacing = Math.min(ENTRY_GAP, (boxW * 0.6) / (n - 1));
+          const pos = incoming.indexOf(from);
+          entryX = b.x + (pos - (n - 1) / 2) * spacing;
+        }
+      }
+
+      el.setAttribute("d", `M ${a.x} ${exitY} L ${a.x} ${turnY} L ${entryX} ${turnY} L ${entryX} ${entryY}`);
     }
   }
 
   resetLayout() {
     this.positions = computeInitialLayout(this.data);
+    this.resolveOverlaps();
     sessionStorage.removeItem(STORAGE_KEY);
     if (!reducedMotion) {
       this.nodesLayer.classList.add("settling");
       window.setTimeout(() => this.nodesLayer.classList.remove("settling"), 500);
     }
     this.render();
+  }
+
+  /**
+   * Nudges freshly laid-out nodes apart along x until no two rendered
+   * boxes overlap, using their actual measured size (title/subtitle/tag
+   * text varies a lot in width, so the abstract spacing in layout.ts is
+   * only an approximation). Never moves "you", and never touches y so the
+   * top-to-bottom row hierarchy from layout.ts is preserved.
+   */
+  private resolveOverlaps() {
+    const margin = 14;
+    const ids = this.data.nodes.map((n) => n.id);
+    const size = this.nodeSize;
+
+    for (let iter = 0; iter < 60; iter++) {
+      let moved = false;
+      for (let i = 0; i < ids.length; i++) {
+        for (let j = i + 1; j < ids.length; j++) {
+          const a = this.positions.get(ids[i]);
+          const b = this.positions.get(ids[j]);
+          const sa = size.get(ids[i]);
+          const sb = size.get(ids[j]);
+          if (!a || !b || !sa || !sb) continue;
+
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const overlapX = sa.w / 2 + sb.w / 2 + margin - Math.abs(dx);
+          const overlapY = sa.h / 2 + sb.h / 2 + margin - Math.abs(dy);
+          if (overlapX <= 0 || overlapY <= 0) continue;
+
+          // Boxes intersect — separate them along x only, just enough
+          // that their horizontal extents stop overlapping regardless of
+          // how close they are in y.
+          moved = true;
+          const sign = dx === 0 ? (i % 2 === 0 ? 1 : -1) : Math.sign(dx);
+          const aMovable = a.id !== "you";
+          const bMovable = b.id !== "you";
+          const share = aMovable && bMovable ? overlapX / 2 : overlapX;
+          if (aMovable) a.x -= share * sign;
+          if (bMovable) b.x += share * sign;
+        }
+      }
+      if (!moved) break;
+    }
   }
 }
 

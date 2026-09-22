@@ -119,6 +119,7 @@ function buildSkillNodesAndEdges(): { nodes: GraphNode[]; edges: GraphEdge[] } {
       title: skill,
       category: SKILL_CATEGORY[skill],
     });
+    edges.push({ from: "you", to: id, kind: "related" });
     for (const pid of projectIds) {
       edges.push({ from: id, to: pid, kind: "built-with" });
     }
@@ -164,17 +165,21 @@ export function buildGraph(): GraphData {
     }
   }
 
-  // If no experience entries exist yet, connect You directly to each
-  // project so the graph still reads correctly before that content lands.
-  if (experience.length === 0) {
-    for (const p of projects) {
-      edges.push({ from: "you", to: p.id, kind: "related" });
-    }
-  }
-
   const { nodes: skillNodes, edges: skillEdges } = buildSkillNodesAndEdges();
   nodes.push(...skillNodes);
   edges.push(...skillEdges);
+
+  // Relationship is You -> Skill -> Project. A project reaches "you" only
+  // through a shared skill hub or an experience entry; if none of its tags
+  // were ever used by a second project (so it has no skill hub) and it's
+  // not tied to an experience entry, fall back to a direct edge so it
+  // doesn't end up disconnected from the graph.
+  const reachable = new Set(edges.map((e) => e.to));
+  for (const p of projects) {
+    if (!reachable.has(p.id)) {
+      edges.push({ from: "you", to: p.id, kind: "related" });
+    }
+  }
 
   return { nodes, edges };
 }
