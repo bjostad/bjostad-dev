@@ -282,14 +282,21 @@ body {
   gap: 8px;
   padding: 3px 6px;
   border-radius: 2px;
+  border: 1px solid transparent;
   cursor: pointer;
-  transition: background-color 0.15s ease, opacity 0.15s ease;
+  transition: background-color 0.15s ease, opacity 0.15s ease, border-color 0.15s ease;
 }
 
 .attr-row:hover,
 .attr-row:focus-visible {
-  background: rgba(61, 139, 255, 0.12);
+  background: rgba(61, 139, 255, 0.18);
+  border-color: var(--accent-primary);
   outline: none;
+}
+
+.attr-row:hover .attr-label,
+.attr-row:focus-visible .attr-label {
+  color: #ffffff;
 }
 
 .attr-row.active-attr {
@@ -305,6 +312,7 @@ body {
   font-size: 11px;
   color: var(--text-primary);
   white-space: nowrap;
+  transition: color 0.15s ease;
 }
 
 .attr-badge {
@@ -315,6 +323,13 @@ body {
   border-radius: 2px;
   padding: 0 4px;
   flex-shrink: 0;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.attr-row:hover .attr-badge,
+.attr-row:focus-visible .attr-badge {
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
 }
 
 /* ---------- Detail panel ---------- */

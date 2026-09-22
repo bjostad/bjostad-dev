@@ -333,6 +333,11 @@ export class GraphCanvas {
         if (e.from === activeId) connected.add(e.to);
         if (e.to === activeId) connected.add(e.from);
       }
+      // The active id is always one of "you"'s own attributes, so "you"
+      // itself is always relevant — without this, the card's own dim
+      // toggle (below) would fade the whole card, including the very
+      // attribute row that's supposed to stay at full brightness.
+      connected.add("you");
     }
     for (const [nid, el] of this.nodeEls) {
       el.classList.toggle("dim", activeId !== null && !connected.has(nid));
@@ -382,14 +387,17 @@ export class GraphCanvas {
    * end — except you<->contact, which is 1:1 and gets a tick at both.
    */
   private routeEdges() {
-    const ROW_MARGIN = 16;
-    const BAND_GAP = 14;
-    const ENTRY_GAP = 20;
-    const ATTR_STUB = 18;
-    // Each attribute's horizontal run gets its own band, spaced far
-    // enough apart that two different-colored runs never read as
-    // overlapping even where their x-ranges cover the same ground.
-    const ATTR_BAND_GAP = 26;
+    const ROW_MARGIN = 14;
+    // One shared, uniform gap for every kind of line spacing — vertical
+    // (the distance between two attributes' bands, or between a stub and
+    // its neighbor) and horizontal (the distance between two entry points
+    // sharing a project's top edge) all use the same tight value, so nothing
+    // reads as more or less cramped depending on which axis it's on.
+    const GAP = 16;
+    const BAND_GAP = GAP;
+    const ENTRY_GAP = GAP;
+    const ATTR_STUB = GAP;
+    const ATTR_BAND_GAP = GAP;
 
     const typeById = new Map(this.data.nodes.map((n) => [n.id, n.type]));
     const you = this.positions.get("you");
@@ -433,14 +441,14 @@ export class GraphCanvas {
     // connects to, or its line would have to cross back up through that
     // project's box to reach it.
     //
-    // There's plenty of open space between "you" and even the nearest
-    // project, so bands are handed out from the *loosest*-ceiling
-    // attribute down to the tightest, each claiming the deepest slot its
-    // own ceiling allows — at least ATTR_BAND_GAP shallower than the one
-    // before it. That way a run of attributes that all share the same
-    // tight ceiling (e.g. several all connecting to the one nearest
-    // project) still fan out upward into that open space instead of
-    // colliding on the same level.
+    // The most tightly constrained attribute (the one whose nearest
+    // target is closest of all) claims the deepest band, sitting right at
+    // its own ceiling. Every other attribute is processed from tightest
+    // to loosest and pushed a uniform ATTR_BAND_GAP *shallower* than the
+    // last — so an attribute with real breathing room (like one that only
+    // connects to far-off projects) doesn't just land wherever's left
+    // near the crowded bottom, it visibly peels off above the rest, the
+    // furthest attribute ending up the shallowest of all.
     const attrMidY = new Map<string, number>();
     const attrBandIndex = new Map<string, number>();
     {
@@ -458,9 +466,9 @@ export class GraphCanvas {
       const rowOrder = new Map<string, number>();
       [...this.attributeOffset.entries()].sort((a, b) => a[1].dy - b[1].dy).forEach(([id], i) => rowOrder.set(id, i));
 
-      // Loosest (largest/deepest) ceiling first.
+      // Tightest (smallest/shallowest-ceiling) attribute first.
       const ordered = [...ceiling.keys()].sort((a, b) => {
-        const diff = ceiling.get(b)! - ceiling.get(a)!;
+        const diff = ceiling.get(a)! - ceiling.get(b)!;
         return diff !== 0 ? diff : (rowOrder.get(a) ?? 0) - (rowOrder.get(b) ?? 0);
       });
 
