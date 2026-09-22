@@ -5,11 +5,11 @@ const SPAWN_MIN_MS = 1800;
 const SPAWN_MAX_MS = 4200;
 const WAVE_INTENSITY = 0.45; // dampens how bright/dark a wave can push a dot
 
-// Slow constant drift of the whole grid, down and to the left, at ~35°
-// below the leftward horizontal.
+// Slow constant drift of the whole grid, down and to the right, at ~35°
+// below the rightward horizontal.
 const DRIFT_ANGLE_DEG = 35;
 const DRIFT_SPEED = 6; // px/sec — noticeable without being distracting
-const DRIFT_DX = -Math.cos((DRIFT_ANGLE_DEG * Math.PI) / 180);
+const DRIFT_DX = Math.cos((DRIFT_ANGLE_DEG * Math.PI) / 180);
 const DRIFT_DY = Math.sin((DRIFT_ANGLE_DEG * Math.PI) / 180);
 
 interface Wave {

@@ -1,8 +1,9 @@
 # bjostad.dev
 
 Interactive portfolio: an entity-relationship-style graph of you, your projects,
-skills, and experience, rendered on a dark blueprint canvas. Every node is
-draggable. See `DESIGN.md` (or the design doc artifact) for the full rationale.
+and experience, rendered on a dark blueprint canvas with crow's-foot notation
+on every connector. Every node is draggable. See `DESIGN.md` (or the design
+doc artifact) for the full rationale.
 
 ## Local development
 
@@ -28,12 +29,14 @@ Everything you need to update lives in **`src/data/graph.ts`**:
 - `contact` — update email/GitHub/LinkedIn, and point the `Resume (PDF)` link
   at your actual résumé (see below).
 
-**Skill nodes are automatic.** A skill becomes its own node once it's used by
-two or more projects (see `buildSkillNodesAndEdges` in `graph.ts`); a skill
-used by only one project stays a tag on that project's card. Adding a second
-project with an existing skill promotes it to a node on the next build — no
-manual wiring needed. Give a skill a `category` in `SKILL_CATEGORY` (language
-/ framework / database / platform / tool) to control its small type badge.
+**Skill attributes are automatic.** A skill becomes a field row on the "you"
+card once it's used by two or more projects (see `buildAttributesAndEdges` in
+`graph.ts`); a skill used by only one project stays a tag on that project's
+card instead. Adding a second project with an existing skill promotes it to
+an attribute row on the next build — no manual wiring needed. Give a skill a
+`category` in `SKILL_CATEGORY` (language / framework / database / platform /
+tool) to control its small type badge. Click an attribute row on the graph to
+highlight the projects it connects to.
 
 ## Resume
 

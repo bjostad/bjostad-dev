@@ -144,7 +144,6 @@ body {
 }
 
 .edge-built-with {
-  stroke-dasharray: 4 4;
   stroke: var(--accent-secondary);
   opacity: 0.45;
 }
@@ -232,19 +231,9 @@ body {
   margin-right: 4px;
 }
 
-.node-badge {
-  display: inline-block;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-muted);
-  border: 1px solid var(--line-edge);
-  border-radius: 2px;
-  padding: 1px 5px;
-  margin-top: 5px;
-}
-
 .node-you {
-  min-width: 190px;
+  min-width: 200px;
+  max-width: 240px;
   border-color: var(--accent-primary);
 }
 
@@ -276,6 +265,56 @@ body {
 
 .node-contact {
   border-color: var(--accent-secondary);
+}
+
+/* ---------- Attributes (skills, as fields on the "you" entity) ---------- */
+
+.attr-list {
+  margin: 10px -6px -4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-edge);
+}
+
+.attr-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.attr-row:hover,
+.attr-row:focus-visible {
+  background: rgba(61, 139, 255, 0.12);
+  outline: none;
+}
+
+.attr-row.active-attr {
+  background: rgba(61, 139, 255, 0.22);
+}
+
+.attr-row.dim {
+  opacity: 0.3;
+}
+
+.attr-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.attr-badge {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--text-muted);
+  border: 1px solid var(--line-edge);
+  border-radius: 2px;
+  padding: 0 4px;
+  flex-shrink: 0;
 }
 
 /* ---------- Detail panel ---------- */

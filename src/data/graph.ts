@@ -1,10 +1,10 @@
-import type { GraphData, GraphNode, GraphEdge, SkillCategory } from "./types";
+import type { GraphAttribute, GraphData, GraphEdge, GraphNode, SkillCategory } from "./types";
 
 /**
  * ---------------------------------------------------------------------
  * EDIT ME: this is the only file you should need to touch to update
  * content. Add a project, tweak your bio, add an experience entry —
- * the graph (including which skills become their own nodes) rebuilds
+ * the graph (including which skills become attributes of "you") rebuilds
  * itself from what's below.
  * ---------------------------------------------------------------------
  */
@@ -96,8 +96,8 @@ const contact: GraphNode = {
   position: { x: 0.85, y: 0.7 },
 };
 
-/** Promotion rule: a skill becomes its own node once it's used by 2+ projects. */
-function buildSkillNodesAndEdges(): { nodes: GraphNode[]; edges: GraphEdge[] } {
+/** Promotion rule: a skill becomes an attribute of "you" once it's used by 2+ projects. */
+function buildAttributesAndEdges(): { attributes: GraphAttribute[]; edges: GraphEdge[] } {
   const counts = new Map<string, string[]>();
   for (const p of projects) {
     for (const tag of p.tags) {
@@ -107,25 +107,19 @@ function buildSkillNodesAndEdges(): { nodes: GraphNode[]; edges: GraphEdge[] } {
     }
   }
 
-  const nodes: GraphNode[] = [];
+  const attributes: GraphAttribute[] = [];
   const edges: GraphEdge[] = [];
 
   for (const [skill, projectIds] of counts) {
-    if (projectIds.length < 2) continue; // stays a tag, not a node
+    if (projectIds.length < 2) continue; // stays a tag, not an attribute
     const id = `skill-${slug(skill)}`;
-    nodes.push({
-      id,
-      type: "skill",
-      title: skill,
-      category: SKILL_CATEGORY[skill],
-    });
-    edges.push({ from: "you", to: id, kind: "related" });
+    attributes.push({ id, label: skill, category: SKILL_CATEGORY[skill] });
     for (const pid of projectIds) {
       edges.push({ from: id, to: pid, kind: "built-with" });
     }
   }
 
-  return { nodes, edges };
+  return { attributes, edges };
 }
 
 function slug(s: string): string {
@@ -133,7 +127,8 @@ function slug(s: string): string {
 }
 
 export function buildGraph(): GraphData {
-  const nodes: GraphNode[] = [you, contact];
+  const { attributes, edges: attributeEdges } = buildAttributesAndEdges();
+  const nodes: GraphNode[] = [{ ...you, attributes }, contact];
   const edges: GraphEdge[] = [{ from: "you", to: "contact", kind: "related" }];
 
   for (const p of projects) {
@@ -165,15 +160,13 @@ export function buildGraph(): GraphData {
     }
   }
 
-  const { nodes: skillNodes, edges: skillEdges } = buildSkillNodesAndEdges();
-  nodes.push(...skillNodes);
-  edges.push(...skillEdges);
+  edges.push(...attributeEdges);
 
-  // Relationship is You -> Skill -> Project. A project reaches "you" only
-  // through a shared skill hub or an experience entry; if none of its tags
-  // were ever used by a second project (so it has no skill hub) and it's
-  // not tied to an experience entry, fall back to a direct edge so it
-  // doesn't end up disconnected from the graph.
+  // Relationship is You (via its attributes) -> Project. A project
+  // reaches "you" only through a shared skill attribute or an experience
+  // entry; if none of its tags were ever used by a second project (so it
+  // has no attribute) and it's not tied to an experience entry, fall back
+  // to a direct edge so it doesn't end up disconnected from the graph.
   const reachable = new Set(edges.map((e) => e.to));
   for (const p of projects) {
     if (!reachable.has(p.id)) {
