@@ -71,7 +71,7 @@ export class DetailPanel {
       parts.push("</div>");
     }
 
-    // Resume gets a special in-pane preview alongside the download link.
+    // Resume gets a special in-pane preview alongside its link.
     const resumeLink = node.links?.find((l) => /resume/i.test(l.label));
     if (node.type === "contact" && resumeLink) {
       parts.push(`
@@ -84,8 +84,7 @@ export class DetailPanel {
     if (remainingLinks.length) {
       parts.push('<div class="detail-links">');
       for (const l of remainingLinks) {
-        const download = /resume/i.test(l.label) ? " download" : "";
-        parts.push(`<a href="${esc(l.url)}" target="_blank" rel="noopener"${download}>${esc(l.label)}</a>`);
+        parts.push(`<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`);
       }
       parts.push("</div>");
     }

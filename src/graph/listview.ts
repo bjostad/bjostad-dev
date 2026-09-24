@@ -39,7 +39,7 @@ export function renderListView(root: HTMLElement, data: GraphData) {
 
   if (contact) {
     const links = (contact.links ?? [])
-      .map((l) => `<a href="${esc(l.url)}"${/resume/i.test(l.label) ? " download" : ""} target="_blank" rel="noopener">${esc(l.label)}</a>`)
+      .map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`)
       .join(" · ");
     root.appendChild(section("Contact", `<li>${links}</li>`));
   }

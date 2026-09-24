@@ -8,7 +8,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 // still match, so a stale save from a previous version would otherwise
 // keep "validating" and loading over whatever the current default should
 // be, even though nothing about the content changed.
-const STORAGE_KEY = "bjostad-graph-layout-v3";
+const STORAGE_KEY = "bjostad-graph-layout-v4";
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 // How long a skill's projects stay revealed after the pointer leaves its
 // row — long enough to travel from the row to one of those project cards.
@@ -216,7 +216,7 @@ export class GraphCanvas {
           return;
         }
         ev.stopPropagation();
-        if ((ev.target as Element).closest("a")) return; // a link on the card, not the card itself
+        if ((ev.target as Element).closest("a, .attr-row")) return; // a link or skill on the card, not the card itself
         this.onExpand(node);
       });
       el.addEventListener("keydown", (ev) => {
@@ -327,14 +327,10 @@ export class GraphCanvas {
         .join("");
 
       return `
+        ${photo}
         <div class="you-info">
-          <div class="node-you-inner">
-            ${photo}
-            <div class="you-text">
-              <div class="node-title">${escapeHtml(node.title)}</div>
-              ${node.subtitle ? `<div class="node-subtitle">${escapeHtml(node.subtitle)}</div>` : ""}
-            </div>
-          </div>
+          <div class="node-title">${escapeHtml(node.title)}</div>
+          ${node.subtitle ? `<div class="node-subtitle">${escapeHtml(node.subtitle)}</div>` : ""}
           ${node.summary ? `<p class="you-pitch">${escapeHtml(node.summary)}</p>` : ""}
           <p class="you-hint">Hover a skill or a project to see how they connect.</p>
         </div>
@@ -347,9 +343,7 @@ export class GraphCanvas {
     const links = node.links ?? [];
     const linked = new Set<string>();
     const linkHtml = (url: string, text: string) =>
-      /resume/i.test(url)
-        ? `<a href="${escapeHtml(url)}" download>${escapeHtml(text)}</a>`
-        : `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
+      `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
     const fieldRows = (node.fields ?? []).map((f) => {
       const match = links.find((l) => l.label.toLowerCase() === f.label.toLowerCase());
       if (match) linked.add(match.label);
@@ -361,7 +355,7 @@ export class GraphCanvas {
           .filter((l) => !linked.has(l.label))
           .map((l) => {
             const label = /resume/i.test(l.label) ? "resume" : l.label.toLowerCase();
-            const text = /resume/i.test(l.label) ? "Download PDF" : l.url;
+            const text = /resume/i.test(l.label) ? "View PDF" : l.url;
             return `<div class="node-field"><span class="field-label">${escapeHtml(label)}</span> ${linkHtml(l.url, text)}</div>`;
           })
       : [];
@@ -381,7 +375,11 @@ export class GraphCanvas {
   private suppressClick = false;
 
   private startDrag(id: string, ev: PointerEvent) {
-    if ((ev.target as Element).closest("a")) return;
+    // Dragging captures the pointer, which makes the browser deliver the
+    // following click to the card rather than whatever was pressed — so
+    // links and skill rows must not start a drag, or their own click
+    // never fires and the card's detail panel opens instead.
+    if ((ev.target as Element).closest("a, .attr-row")) return;
     ev.preventDefault();
     const pos = this.positions.get(id)!;
     const scale = this.getScale();
