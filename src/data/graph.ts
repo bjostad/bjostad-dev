@@ -39,7 +39,13 @@ interface ProjectSeed {
   cardHighlights?: string[];
   summary?: string;
   highlights?: string[];
+  /** Shown in the project's detail section — label them e.g. "Live site", "Source". */
   links?: { label: string; url: string }[];
+  /** A URL to embed as a live demo in the detail section. Only works for
+   * sites that allow being framed; otherwise use `screenshot` instead. */
+  demoUrl?: string;
+  /** Path to an image in /public, e.g. "/screenshots/gebo.png". */
+  screenshot?: string;
 }
 
 const projects: ProjectSeed[] = [
@@ -204,6 +210,8 @@ export function buildGraph(): GraphData {
       highlights: p.highlights,
       tags: p.tags,
       links: p.links,
+      demoUrl: p.demoUrl,
+      screenshot: p.screenshot,
     });
   }
 

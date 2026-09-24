@@ -49,7 +49,7 @@ export class GraphCanvas {
   private attrColor = new Map<string, string>();
   private onExpand: (node: GraphNode) => void;
   private hoverId: string | null = null;
-  private pinnedAttrId: string | null = null;
+  private pinnedId: string | null = null;
   private clearTimer: number | undefined;
   /** Projects reachable through a skill attribute — dim until one of their skills is picked. */
   private revealable = new Set<string>();
@@ -117,13 +117,16 @@ export class GraphCanvas {
     // A click that isn't on a node or attribute (they stopPropagation)
     // clears a pinned attribute highlight.
     this.root.addEventListener("click", () => {
-      if (this.pinnedAttrId) {
-        this.pinnedAttrId = null;
+      if (this.pinnedId) {
+        this.pinnedId = null;
         this.applyHighlight();
       }
     });
 
-    window.addEventListener("resize", () => this.center());
+    window.addEventListener("resize", () => {
+      this.center();
+      this.onRender?.();
+    });
 
     if (!reducedMotion) {
       this.viewport.classList.add("boot-in");
@@ -217,12 +220,12 @@ export class GraphCanvas {
         }
         ev.stopPropagation();
         if ((ev.target as Element).closest("a, .attr-row")) return; // a link or skill on the card, not the card itself
-        this.onExpand(node);
+        this.expand(node);
       });
       el.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter" || ev.key === " ") {
           ev.preventDefault();
-          this.onExpand(node);
+          this.expand(node);
         }
       });
 
@@ -256,14 +259,14 @@ export class GraphCanvas {
           this.suppressClick = false;
           return;
         }
-        this.pinnedAttrId = this.pinnedAttrId === id ? null : id;
+        this.pinnedId = this.pinnedId === id ? null : id;
         this.applyHighlight();
       });
       rowEl.addEventListener("keydown", (ev) => {
         if (ev.key === "Enter" || ev.key === " ") {
           ev.preventDefault();
           ev.stopPropagation();
-          this.pinnedAttrId = this.pinnedAttrId === id ? null : id;
+          this.pinnedId = this.pinnedId === id ? null : id;
           this.applyHighlight();
         }
       });
@@ -436,7 +439,7 @@ export class GraphCanvas {
    * skills.
    */
   private applyHighlight() {
-    const activeId = this.hoverId ?? this.pinnedAttrId;
+    const activeId = this.hoverId ?? this.pinnedId;
     const litProjects = new Set<string>();
     const litSkills = new Set<string>();
     for (const e of this.data.edges) {
@@ -503,18 +506,32 @@ export class GraphCanvas {
     return ms;
   }
 
+  /** A project stays highlighted (its skill lines drawn) while it's open. */
+  private expand(node: GraphNode) {
+    if (node.type === "project") {
+      this.pinnedId = node.id;
+      this.applyHighlight();
+    }
+    this.onExpand(node);
+  }
+
+  /** Called after every layout change, for anything outside the canvas
+   * that's anchored to a card's on-screen position. */
+  onRender: (() => void) | null = null;
+
   private render() {
     for (const [id, el] of this.nodeEls) {
       const p = this.positions.get(id)!;
       el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`;
     }
     this.routeEdges();
+    this.onRender?.();
   }
 
   /** Whether a skill->project line is part of the current highlight: every
    * line from the active skill, or every skill line into the active project. */
   private isLitEdge(from: string, to: string): boolean {
-    const activeId = this.hoverId ?? this.pinnedAttrId;
+    const activeId = this.hoverId ?? this.pinnedId;
     if (activeId === null || !this.attributeOffset.has(from)) return false;
     return this.attributeOffset.has(activeId) ? from === activeId : to === activeId;
   }

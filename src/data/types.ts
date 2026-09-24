@@ -33,6 +33,9 @@ export interface GraphNode {
   highlights?: string[];
   /** A few short phrases shown directly on the graph card. */
   cardHighlights?: string[];
+  /** Project detail section media: an embeddable live demo URL wins over a screenshot path. */
+  demoUrl?: string;
+  screenshot?: string;
   fields?: GraphField[];
   links?: GraphLink[];
   tags?: string[];

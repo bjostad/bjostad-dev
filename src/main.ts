@@ -2,6 +2,7 @@ import "./style.css";
 import { buildGraph } from "./data/graph";
 import { GraphCanvas } from "./graph/canvas";
 import { DetailPanel } from "./graph/panel";
+import { ProjectDetail } from "./graph/projectDetail";
 import { renderListView } from "./graph/listview";
 import { initBackground } from "./background";
 
@@ -12,15 +13,19 @@ const data = buildGraph();
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
-  <header class="site-header">
-    <span class="brand">bjostad.dev</span>
-    <div class="header-controls">
-      <button type="button" class="btn" id="reset-layout">Reset layout</button>
-      <button type="button" class="btn" id="toggle-view" aria-pressed="false">List view</button>
-    </div>
-  </header>
-  <main id="canvas-container" class="canvas-container"></main>
-  <div id="list-container" class="list-container" hidden></div>
+  <div class="graph-screen">
+    <header class="site-header">
+      <span class="brand">bjostad.dev</span>
+      <div class="header-controls">
+        <button type="button" class="btn" id="reset-layout">Reset layout</button>
+        <button type="button" class="btn" id="toggle-view" aria-pressed="false">List view</button>
+      </div>
+    </header>
+    <main id="canvas-container" class="canvas-container"></main>
+    <div id="list-container" class="list-container" hidden></div>
+  </div>
+  <section id="project-detail" class="project-detail" aria-live="polite" hidden></section>
+  <svg class="page-links" aria-hidden="true"><path class="page-link" /></svg>
 `;
 
 const canvasContainer = document.querySelector<HTMLElement>("#canvas-container")!;
@@ -29,7 +34,15 @@ const toggleBtn = document.querySelector<HTMLButtonElement>("#toggle-view")!;
 const resetBtn = document.querySelector<HTMLButtonElement>("#reset-layout")!;
 
 const panel = new DetailPanel(document.body);
-const canvas = new GraphCanvas(canvasContainer, data, (node) => panel.open(node));
+const projectDetail = new ProjectDetail(
+  document.querySelector<HTMLElement>("#project-detail")!,
+  document.querySelector<SVGSVGElement>(".page-links")!,
+);
+const canvas = new GraphCanvas(canvasContainer, data, (node) => {
+  if (node.type === "project") projectDetail.show(node);
+  else panel.open(node);
+});
+canvas.onRender = () => projectDetail.refresh();
 renderListView(listContainer, data);
 
 resetBtn.addEventListener("click", () => canvas.resetLayout());
@@ -42,4 +55,5 @@ toggleBtn.addEventListener("click", () => {
   toggleBtn.setAttribute("aria-pressed", String(showingList));
   toggleBtn.textContent = showingList ? "Graph view" : "List view";
   resetBtn.hidden = showingList;
+  projectDetail.refresh();
 });
