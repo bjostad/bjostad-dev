@@ -8,12 +8,29 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 // still match, so a stale save from a previous version would otherwise
 // keep "validating" and loading over whatever the current default should
 // be, even though nothing about the content changed.
-const STORAGE_KEY = "bjostad-graph-layout-v2";
+const STORAGE_KEY = "bjostad-graph-layout-v3";
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+// How long a skill's projects stay revealed after the pointer leaves its
+// row — long enough to travel from the row to one of those project cards.
+const HOVER_GRACE_MS = 600;
+const FIT_PADDING = 32;
+const MIN_SCALE = 0.45;
+// Clearance kept between a line and any card edge it runs alongside.
+const ROW_MARGIN = 14;
+// One uniform spacing for parallel lines, both vertical and horizontal.
+const GAP = 16;
 
 interface AttributeOffset {
   dx: number;
   dy: number;
+}
+
+interface Box {
+  x: number;
+  l: number;
+  r: number;
+  t: number;
+  b: number;
 }
 
 export class GraphCanvas {
@@ -33,6 +50,10 @@ export class GraphCanvas {
   private onExpand: (node: GraphNode) => void;
   private hoverId: string | null = null;
   private pinnedAttrId: string | null = null;
+  private clearTimer: number | undefined;
+  /** Projects reachable through a skill attribute — dim until one of their skills is picked. */
+  private revealable = new Set<string>();
+  private shownEdges = new Set<SVGPathElement>();
 
   constructor(root: HTMLElement, data: GraphData, onExpand: (node: GraphNode) => void) {
     this.root = root;
@@ -84,8 +105,13 @@ export class GraphCanvas {
       this.resolveOverlaps();
       this.ensureClearanceBelowYou();
     }
+    for (const e of this.data.edges) {
+      if (this.attributeOffset.has(e.from)) this.revealable.add(e.to);
+    }
+
     this.center();
     this.render();
+    this.applyHighlight();
     document.fonts?.ready.then(() => this.remeasure());
 
     // A click that isn't on a node or attribute (they stopPropagation)
@@ -126,9 +152,34 @@ export class GraphCanvas {
     }
   }
 
+  /** Scales (never up) and centers the whole graph. If even
+   * the minimum scale doesn't fit, it anchors to the top-left instead so
+   * "you" stays in view. */
   private center() {
     const rect = this.root.getBoundingClientRect();
-    this.viewport.style.transform = `translate(${rect.width / 2}px, ${rect.height / 2}px)`;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const [id, p] of this.positions) {
+      const s = this.nodeSize.get(id);
+      if (!s) continue;
+      minX = Math.min(minX, p.x - s.w / 2);
+      maxX = Math.max(maxX, p.x + s.w / 2);
+      minY = Math.min(minY, p.y - s.h / 2 - 16); // room for the you<->contact line above
+      maxY = Math.max(maxY, p.y + s.h / 2);
+    }
+    if (minX === Infinity || !rect.width || !rect.height) {
+      this.viewport.style.transform = `translate(${rect.width / 2}px, ${rect.height / 2}px)`;
+      return;
+    }
+
+    const availW = rect.width - FIT_PADDING * 2;
+    const availH = rect.height - FIT_PADDING * 2;
+    const scale = Math.max(MIN_SCALE, Math.min(1, availW / (maxX - minX), availH / (maxY - minY)));
+    const tx = (maxX - minX) * scale > availW ? FIT_PADDING - scale * minX : rect.width / 2 - (scale * (minX + maxX)) / 2;
+    const ty = (maxY - minY) * scale > availH ? FIT_PADDING - scale * minY : rect.height / 2 - (scale * (minY + maxY)) / 2;
+    this.viewport.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
   }
 
   private buildEdges() {
@@ -153,16 +204,19 @@ export class GraphCanvas {
       el.innerHTML = this.nodeInnerHtml(node);
 
       el.addEventListener("pointerdown", (ev) => this.startDrag(node.id, ev));
-      el.addEventListener("mouseenter", () => this.setHover(node.id));
-      el.addEventListener("mouseleave", () => this.setHover(null));
-      el.addEventListener("focus", () => this.setHover(node.id));
-      el.addEventListener("blur", () => this.setHover(null));
+      if (node.type === "project") {
+        el.addEventListener("mouseenter", () => this.setHover(node.id));
+        el.addEventListener("mouseleave", () => this.scheduleClear());
+        el.addEventListener("focus", () => this.setHover(node.id));
+        el.addEventListener("blur", () => this.scheduleClear());
+      }
       el.addEventListener("click", (ev) => {
         if (this.suppressClick) {
           this.suppressClick = false;
           return;
         }
         ev.stopPropagation();
+        if ((ev.target as Element).closest("a")) return; // a link on the card, not the card itself
         this.onExpand(node);
       });
       el.addEventListener("keydown", (ev) => {
@@ -193,9 +247,9 @@ export class GraphCanvas {
       this.attributeEls.set(id, rowEl);
 
       rowEl.addEventListener("mouseenter", () => this.setHover(id));
-      rowEl.addEventListener("mouseleave", () => this.setHover(null));
+      rowEl.addEventListener("mouseleave", () => this.scheduleClear());
       rowEl.addEventListener("focus", () => this.setHover(id));
-      rowEl.addEventListener("blur", () => this.setHover(null));
+      rowEl.addEventListener("blur", () => this.scheduleClear());
       rowEl.addEventListener("click", (ev) => {
         ev.stopPropagation();
         if (this.suppressClick) {
@@ -246,6 +300,7 @@ export class GraphCanvas {
       this.nodeSize.set(id, { w: el.offsetWidth, h: el.offsetHeight });
     }
     this.measureAttributeOffsets();
+    this.center();
     this.render();
   }
 
@@ -272,20 +327,45 @@ export class GraphCanvas {
         .join("");
 
       return `
-        <div class="node-you-inner">
-          ${photo}
-          <div class="you-text">
-            <div class="node-title">${escapeHtml(node.title)}</div>
-            ${node.subtitle ? `<div class="node-subtitle">${escapeHtml(node.subtitle)}</div>` : ""}
+        <div class="you-info">
+          <div class="node-you-inner">
+            ${photo}
+            <div class="you-text">
+              <div class="node-title">${escapeHtml(node.title)}</div>
+              ${node.subtitle ? `<div class="node-subtitle">${escapeHtml(node.subtitle)}</div>` : ""}
+            </div>
           </div>
+          ${node.summary ? `<p class="you-pitch">${escapeHtml(node.summary)}</p>` : ""}
+          <p class="you-hint">Hover a skill or a project to see how they connect.</p>
         </div>
         ${attrRows ? `<div class="attr-list">${attrRows}</div>` : ""}`;
     }
 
-    const fieldsHtml = (node.fields ?? [])
-      .slice(0, 2)
-      .map((f) => `<div class="node-field"><span class="field-label">${escapeHtml(f.label)}</span> ${escapeHtml(f.value)}</div>`)
-      .join("");
+    // A field whose label matches one of the node's links (e.g. "email" /
+    // "Email") renders as that link; links with no matching field (the
+    // résumé) get a row of their own.
+    const links = node.links ?? [];
+    const linked = new Set<string>();
+    const linkHtml = (url: string, text: string) =>
+      /resume/i.test(url)
+        ? `<a href="${escapeHtml(url)}" download>${escapeHtml(text)}</a>`
+        : `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(text)}</a>`;
+    const fieldRows = (node.fields ?? []).map((f) => {
+      const match = links.find((l) => l.label.toLowerCase() === f.label.toLowerCase());
+      if (match) linked.add(match.label);
+      const value = match ? linkHtml(match.url, f.value) : escapeHtml(f.value);
+      return `<div class="node-field"><span class="field-label">${escapeHtml(f.label)}</span> ${value}</div>`;
+    });
+    const extraRows = node.type === "contact"
+      ? links
+          .filter((l) => !linked.has(l.label))
+          .map((l) => {
+            const label = /resume/i.test(l.label) ? "resume" : l.label.toLowerCase();
+            const text = /resume/i.test(l.label) ? "Download PDF" : l.url;
+            return `<div class="node-field"><span class="field-label">${escapeHtml(label)}</span> ${linkHtml(l.url, text)}</div>`;
+          })
+      : [];
+    const fieldsHtml = [...fieldRows, ...extraRows].join("");
 
     const highlightsHtml = node.cardHighlights?.length
       ? `<ul class="node-highlights">${node.cardHighlights.map((h) => `<li>${escapeHtml(h)}</li>`).join("")}</ul>`
@@ -301,6 +381,7 @@ export class GraphCanvas {
   private suppressClick = false;
 
   private startDrag(id: string, ev: PointerEvent) {
+    if ((ev.target as Element).closest("a")) return;
     ev.preventDefault();
     const pos = this.positions.get(id)!;
     const scale = this.getScale();
@@ -338,39 +419,90 @@ export class GraphCanvas {
   }
 
   private setHover(id: string | null) {
+    window.clearTimeout(this.clearTimer);
     this.hoverId = id;
     this.applyHighlight();
   }
 
-  /** Effective highlight is whatever's hovered, falling back to a pinned
-   * attribute (click) when nothing's currently under the pointer. */
+  private scheduleClear() {
+    window.clearTimeout(this.clearTimer);
+    this.clearTimer = window.setTimeout(() => this.setHover(null), HOVER_GRACE_MS);
+  }
+
+  /**
+   * The active item is whatever's hovered (a skill or a project), falling
+   * back to a pinned skill (click). Skill lines stay hidden and projects
+   * stay dim until something is active. A skill draws its lines out from
+   * "you" and each of its projects lights up as its line arrives; a
+   * project lights up right away and draws the lines from each of its
+   * skills.
+   */
   private applyHighlight() {
     const activeId = this.hoverId ?? this.pinnedAttrId;
-    const connected = new Set<string>();
-    if (activeId) {
-      connected.add(activeId);
-      for (const e of this.data.edges) {
-        if (e.from === activeId) connected.add(e.to);
-        if (e.to === activeId) connected.add(e.from);
-      }
-      // The active id is always one of "you"'s own attributes, so "you"
-      // itself is always relevant — without this, the card's own dim
-      // toggle (below) would fade the whole card, including the very
-      // attribute row that's supposed to stay at full brightness.
-      connected.add("you");
+    const litProjects = new Set<string>();
+    const litSkills = new Set<string>();
+    for (const e of this.data.edges) {
+      if (!this.isLitEdge(e.from, e.to)) continue;
+      litProjects.add(e.to);
+      litSkills.add(e.from);
     }
+
+    // Skill lines are only routed while lit, so route before measuring
+    // any of them for the draw-in.
+    this.routeEdges();
+
+    // Lines first, so each newly lit project knows when its first line
+    // will reach it.
+    const arrivalMs = new Map<string, number>();
+    for (const { from, to, el } of this.edgeEls) {
+      const isAttrEdge = this.attributeOffset.has(from);
+      const active = this.isLitEdge(from, to);
+      const visible = !isAttrEdge || active;
+      el.classList.toggle("concealed", !visible);
+      el.classList.toggle("active", active);
+      el.classList.toggle("dim", activeId !== null && visible && !active);
+
+      if (visible && !this.shownEdges.has(el)) {
+        this.shownEdges.add(el);
+        if (isAttrEdge) arrivalMs.set(to, Math.min(arrivalMs.get(to) ?? Infinity, this.drawIn(el)));
+      } else if (!visible && this.shownEdges.has(el)) {
+        this.shownEdges.delete(el);
+        el.getAnimations().forEach((a) => a.cancel());
+      }
+    }
+
     for (const [nid, el] of this.nodeEls) {
-      el.classList.toggle("dim", activeId !== null && !connected.has(nid));
+      const lit = nid === activeId || litProjects.has(nid);
+      const dim = this.revealable.has(nid) ? !lit : activeId !== null && nid !== "you";
+      const wasDim = el.classList.contains("dim");
+      if (dim || nid === activeId) {
+        el.style.transitionDelay = "";
+      } else if (wasDim) {
+        const delay = Math.round((arrivalMs.get(nid) ?? 0) * 0.7);
+        el.style.transitionDelay = `${delay}ms, 0s`;
+      }
+      el.classList.toggle("dim", dim);
     }
     for (const [aid, el] of this.attributeEls) {
-      el.classList.toggle("dim", activeId !== null && !connected.has(aid));
-      el.classList.toggle("active-attr", aid === activeId);
+      el.classList.toggle("dim", activeId !== null && !litSkills.has(aid));
+      el.classList.toggle("active-attr", litSkills.has(aid));
     }
-    for (const { from, to, el } of this.edgeEls) {
-      const active = activeId !== null && (from === activeId || to === activeId);
-      el.classList.toggle("dim", activeId !== null && !active);
-      el.classList.toggle("active", active);
-    }
+  }
+
+  /** Animates a line drawing itself from its start; returns how long that takes. */
+  private drawIn(el: SVGPathElement): number {
+    if (reducedMotion) return 0;
+    const len = el.getTotalLength();
+    const ms = Math.min(900, Math.max(350, len * 0.9));
+    el.style.strokeDasharray = `${len} ${len}`;
+    const anim = el.animate([{ strokeDashoffset: len }, { strokeDashoffset: 0 }], {
+      duration: ms,
+      easing: "cubic-bezier(0.3, 0.7, 0.4, 1)",
+    });
+    const done = () => (el.style.strokeDasharray = "");
+    anim.onfinish = done;
+    anim.oncancel = done;
+    return ms;
   }
 
   private render() {
@@ -381,69 +513,54 @@ export class GraphCanvas {
     this.routeEdges();
   }
 
-  /** x used to order edges sharing a destination — attributes don't have
-   * a real position, so this resolves through "you" + their offset. */
-  private originSortKey(id: string): number {
+  /** Whether a skill->project line is part of the current highlight: every
+   * line from the active skill, or every skill line into the active project. */
+  private isLitEdge(from: string, to: string): boolean {
+    const activeId = this.hoverId ?? this.pinnedAttrId;
+    if (activeId === null || !this.attributeOffset.has(from)) return false;
+    return this.attributeOffset.has(activeId) ? from === activeId : to === activeId;
+  }
+
+  private box(id: string): Box | null {
     const p = this.positions.get(id);
-    if (p) return p.x * 100000 + p.y;
-    const off = this.attributeOffset.get(id);
-    const you = this.positions.get("you");
-    if (!off || !you) return 0;
-    return (you.x + off.dx) * 100000 + (you.y + off.dy);
+    const s = this.nodeSize.get(id);
+    if (!p || !s) return null;
+    return { x: p.x, l: p.x - s.w / 2, r: p.x + s.w / 2, t: p.y - s.h / 2, b: p.y + s.h / 2 };
   }
 
   /**
-   * Crow's-foot ER connectors. Node-to-node edges (You/Experience ->
-   * Experience/Project/Contact) use the schema-diagram elbow: leave the
-   * dead center of the top/bottom edge facing the destination, run past
-   * every box in the source's row (stacked per origin so distinct
-   * sources don't share a track), cross to the destination's x, enter
-   * its dead-center facing edge. Attribute -> Project edges (skills,
-   * now fields on "you" rather than their own node) leave the dead
-   * center of their row's right edge instead, since that's where they
-   * actually are on the card, then drop down to clear the project row
-   * before doing the same cross-and-enter. Every edge gets a cardinality
-   * mark: a single tick at the "one" end, a crow's foot at the "many"
-   * end — except you<->contact, which is 1:1 and gets a tick at both.
+   * Crow's-foot ER connectors. Skill lines are routed separately (see
+   * routeSkillEdges); every other edge (You/Experience -> Experience/
+   * Project/Contact) uses the schema-diagram elbow: leave the dead center
+   * of the top/bottom edge facing the destination, run past every box in
+   * the source's row (stacked per origin so distinct sources don't share
+   * a track), cross to the destination's x, enter its facing edge. Every
+   * edge gets a cardinality mark: a tick at the "one" end, a crow's foot
+   * at the "many" end — except you<->contact, which is 1:1 (tick at both).
    */
   private routeEdges() {
-    const ROW_MARGIN = 14;
-    // One shared, uniform gap for every kind of line spacing — vertical
-    // (the distance between two attributes' bands, or between a stub and
-    // its neighbor) and horizontal (the distance between two entry points
-    // sharing a project's top edge) all use the same tight value, so nothing
-    // reads as more or less cramped depending on which axis it's on.
-    const GAP = 16;
-    const BAND_GAP = GAP;
-    const ENTRY_GAP = GAP;
-    const ATTR_STUB = GAP;
-    const ATTR_BAND_GAP = GAP;
+    this.routeSkillEdges();
 
     const typeById = new Map(this.data.nodes.map((n) => [n.id, n.type]));
-    const you = this.positions.get("you");
-
     const rowTop = new Map<GraphNode["type"], number>();
     const rowBottom = new Map<GraphNode["type"], number>();
     for (const n of this.data.nodes) {
-      const p = this.positions.get(n.id);
-      const s = this.nodeSize.get(n.id);
-      if (!p || !s) continue;
-      rowTop.set(n.type, Math.min(rowTop.get(n.type) ?? Infinity, p.y - s.h / 2));
-      rowBottom.set(n.type, Math.max(rowBottom.get(n.type) ?? -Infinity, p.y + s.h / 2));
+      const bx = this.box(n.id);
+      if (!bx) continue;
+      rowTop.set(n.type, Math.min(rowTop.get(n.type) ?? Infinity, bx.t));
+      rowBottom.set(n.type, Math.max(rowBottom.get(n.type) ?? -Infinity, bx.b));
     }
 
-    // Non-attribute origins get their own turn-level index, ordered
-    // left-to-right, so bands stack predictably.
+    // Each origin gets its own turn level, ordered left-to-right, so bands
+    // from different origins in the same row stack predictably.
     const originIndex = new Map<string, number>();
     {
       const byRow = new Map<GraphNode["type"], string[]>();
-      const seen = new Set<string>();
       for (const e of this.data.edges) {
-        if (this.attributeOffset.has(e.from) || seen.has(e.from)) continue;
-        seen.add(e.from);
+        if (this.attributeOffset.has(e.from)) continue;
         const t = typeById.get(e.from)!;
         const list = byRow.get(t) ?? [];
-        list.push(e.from);
+        if (!list.includes(e.from)) list.push(e.from);
         byRow.set(t, list);
       }
       for (const list of byRow.values()) {
@@ -452,145 +569,157 @@ export class GraphCanvas {
       }
     }
 
-    // Each attribute gets one shared horizontal band (midY) — computed
-    // once per attribute, not per edge, so every edge leaving it stays on
-    // the same level (the shared "trunk" look) and, crucially, so two
-    // DIFFERENT attributes never land on the same level even when both
-    // are constrained by the same nearby project. An attribute's band can
-    // never dip past (numerically below) the closest project it actually
-    // connects to, or its line would have to cross back up through that
-    // project's box to reach it.
-    //
-    // The most tightly constrained attribute (the one whose nearest
-    // target is closest of all) claims the deepest band, sitting right at
-    // its own ceiling. Every other attribute is processed from tightest
-    // to loosest and pushed a uniform ATTR_BAND_GAP *shallower* than the
-    // last — so an attribute with real breathing room (like one that only
-    // connects to far-off projects) doesn't just land wherever's left
-    // near the crowded bottom, it visibly peels off above the rest, the
-    // furthest attribute ending up the shallowest of all.
-    const attrMidY = new Map<string, number>();
-    const attrBandIndex = new Map<string, number>();
-    {
-      const ceiling = new Map<string, number>();
-      for (const attrId of this.attributeOffset.keys()) ceiling.set(attrId, Infinity);
-      for (const e of this.data.edges) {
-        if (!this.attributeOffset.has(e.from)) continue;
-        const b = this.positions.get(e.to);
-        const sizeB = this.nodeSize.get(e.to);
-        if (!b) continue;
-        const entryY = b.y - (sizeB?.h ?? 0) / 2;
-        ceiling.set(e.from, Math.min(ceiling.get(e.from) ?? Infinity, entryY - ROW_MARGIN));
-      }
-
-      const rowOrder = new Map<string, number>();
-      [...this.attributeOffset.entries()].sort((a, b) => a[1].dy - b[1].dy).forEach(([id], i) => rowOrder.set(id, i));
-
-      // Tightest (smallest/shallowest-ceiling) attribute first.
-      const ordered = [...ceiling.keys()].sort((a, b) => {
-        const diff = ceiling.get(a)! - ceiling.get(b)!;
-        return diff !== 0 ? diff : (rowOrder.get(a) ?? 0) - (rowOrder.get(b) ?? 0);
-      });
-
-      let prev = Infinity;
-      ordered.forEach((attrId, i) => {
-        const value = Math.min(ceiling.get(attrId)!, prev - ATTR_BAND_GAP);
-        attrMidY.set(attrId, value);
-        attrBandIndex.set(attrId, i);
-        prev = value;
-      });
-    }
-
-    // Multiple edges landing on the same node get spread across its top
-    // edge instead of all entering at the exact same point.
-    const incomingByDest = new Map<string, string[]>();
-    for (const e of this.data.edges) {
-      const list = incomingByDest.get(e.to) ?? [];
-      list.push(e.from);
-      incomingByDest.set(e.to, list);
-    }
-    for (const list of incomingByDest.values()) {
-      list.sort((a, b) => this.originSortKey(a) - this.originSortKey(b));
-    }
-
     for (const { from, to, el } of this.edgeEls) {
-      const b = this.positions.get(to);
-      const sizeB = this.nodeSize.get(to);
-      if (!b) continue;
+      if (this.attributeOffset.has(from)) continue;
+      const a = this.box(from);
+      const b = this.box(to);
+      if (!a || !b) continue;
+      const fromType = typeById.get(from)!;
       const toType = typeById.get(to)!;
 
-      let entryX = b.x;
-      if (toType === "project") {
-        const incoming = incomingByDest.get(to)!;
-        const n = incoming.length;
-        if (n > 1) {
-          const boxW = sizeB?.w ?? 140;
-          const spacing = Math.min(ENTRY_GAP, (boxW * 0.6) / (n - 1));
-          entryX = b.x + (incoming.indexOf(from) - (n - 1) / 2) * spacing;
-        }
-      }
-
-      const attrOff = this.attributeOffset.get(from);
-      if (attrOff && you) {
-        const exitX = you.x + attrOff.dx;
-        const exitY = you.y + attrOff.dy;
-        const entryY = b.y - (sizeB?.h ?? 0) / 2; // attributes only feed projects, always from above
-        const idx = attrBandIndex.get(from) ?? 0;
-        const stubX = exitX + ATTR_STUB + idx * ATTR_BAND_GAP;
-        const midY = attrMidY.get(from) ?? entryY - ROW_MARGIN;
-        const enterDown = entryY >= midY;
-
-        // One attribute fans out to many projects, so the "many" mark
-        // (crow's foot) belongs at the attribute end and the "one" mark
-        // (tick) at the project end.
-        const d =
-          `M ${exitX} ${exitY} L ${stubX} ${exitY} L ${stubX} ${midY} L ${entryX} ${midY} L ${entryX} ${entryY}` +
-          crowsFoot(exitX, exitY, 1, 0) +
-          tickMark(entryX, entryY, 0, enterDown ? -1 : 1);
-        el.setAttribute("d", d);
-        continue;
-      }
-
-      const a = this.positions.get(from);
-      const sizeA = this.nodeSize.get(from);
-      if (!a) continue;
-      const fromType = typeById.get(from)!;
-
       // You<->Contact sit at the same height, both anchored at the top of
-      // the page — the generic top/bottom elbow below assumes one side is
-      // strictly above the other, so this one gets its own routing: leave
-      // the top of "you", clear above both boxes, drop into the top of
-      // "contact". 1:1, so a tick at both ends instead of a crow's foot.
+      // the page — the generic elbow below assumes one side is strictly
+      // above the other, so this one leaves the top of "you", clears above
+      // both boxes, and drops into the top of "contact".
       if (toType === "contact") {
-        const halfA = (sizeA?.h ?? 0) / 2;
-        const halfB = (sizeB?.h ?? 0) / 2;
-        const exitY = a.y - halfA;
-        const entryY = b.y - halfB;
-        const clearAbove = Math.min(rowTop.get(fromType) ?? exitY, rowTop.get(toType) ?? entryY) - ROW_MARGIN;
+        const clearAbove = Math.min(rowTop.get(fromType) ?? a.t, rowTop.get(toType) ?? b.t) - ROW_MARGIN;
         el.setAttribute(
           "d",
-          `M ${a.x} ${exitY} L ${a.x} ${clearAbove} L ${entryX} ${clearAbove} L ${entryX} ${entryY}` +
-            tickMark(a.x, exitY, 0, -1) +
-            tickMark(entryX, entryY, 0, -1),
+          `M ${a.x} ${a.t} L ${a.x} ${clearAbove} L ${b.x} ${clearAbove} L ${b.x} ${b.t}` +
+            tickMark(a.x, a.t, 0, -1) +
+            tickMark(b.x, b.t, 0, -1),
         );
         continue;
       }
 
-      const down = b.y >= a.y;
-      const exitY = down ? a.y + (sizeA?.h ?? 0) / 2 : a.y - (sizeA?.h ?? 0) / 2;
-      const entryY = down ? b.y - (sizeB?.h ?? 0) / 2 : b.y + (sizeB?.h ?? 0) / 2;
-
+      const down = b.t >= a.t;
+      const exitY = down ? a.b : a.t;
+      const entryY = down ? b.t : b.b;
       const rowClear = down ? rowBottom.get(fromType)! + ROW_MARGIN : rowTop.get(fromType)! - ROW_MARGIN;
       const destClear = down ? rowTop.get(toType)! - ROW_MARGIN : rowBottom.get(toType)! + ROW_MARGIN;
       const idx = originIndex.get(from) ?? 0;
-      let turnY = down ? rowClear + idx * BAND_GAP : rowClear - idx * BAND_GAP;
+      let turnY = down ? rowClear + idx * GAP : rowClear - idx * GAP;
       turnY = down ? Math.min(turnY, destClear) : Math.max(turnY, destClear);
 
-      const oneMark = tickMark(a.x, exitY, 0, down ? 1 : -1);
-      const manyMark = crowsFoot(entryX, entryY, 0, down ? -1 : 1);
-
-      el.setAttribute("d", `M ${a.x} ${exitY} L ${a.x} ${turnY} L ${entryX} ${turnY} L ${entryX} ${entryY}` + oneMark + manyMark);
+      el.setAttribute(
+        "d",
+        `M ${a.x} ${exitY} L ${a.x} ${turnY} L ${b.x} ${turnY} L ${b.x} ${entryY}` +
+          tickMark(a.x, exitY, 0, down ? 1 : -1) +
+          crowsFoot(b.x, entryY, 0, down ? -1 : 1),
+      );
     }
+  }
+
+  /**
+   * Routes only the skill lines that are currently lit — which is always
+   * either one skill fanning out to its projects, or one project gathering
+   * its skills — so no line ever makes room for one that isn't drawn.
+   *
+   * Horizontal runs live in the clear corridor between the bottom of
+   * "you" and the first row of projects beneath it, so they never cut
+   * across a card; each drop into a project picks a spot on its top edge
+   * that doesn't pass behind another card on the way down.
+   *
+   * One skill -> many projects: one column just right of the row, one
+   * shared trunk at the bottom of the corridor, a drop into each project.
+   *
+   * Many skills -> one project: each skill gets its own column, level, and
+   * entry point, assigned so the lines nest instead of crossing. The top
+   * row always takes the outermost column and the rightmost entry; its
+   * level is the shallowest when the project lies to the right of the
+   * columns (lines run right, so outer = higher) and the deepest when it
+   * lies to the left (lines double back, so outer = lower).
+   *
+   * One skill -> its projects is drawn with a crow's foot at the skill
+   * ("many") end and a tick at the project ("one") end. Subpaths run in
+   * drawing order — foot, line, tick — so the draw-in travels outward.
+   */
+  private routeSkillEdges() {
+    const you = this.box("you");
+    const lit = this.edgeEls.filter(({ from, to }) => this.isLitEdge(from, to));
+    if (!you || !lit.length) return;
+
+    const skills = [...new Set(lit.map((e) => e.from))].sort(
+      (a, b) => this.attributeOffset.get(a)!.dy - this.attributeOffset.get(b)!.dy,
+    );
+    const targets = [...new Set(lit.map((e) => e.to))];
+    const youCenterY = (you.t + you.b) / 2;
+    const exitX = you.r;
+
+    let firstRowTop = Infinity;
+    for (const n of this.data.nodes) {
+      if (n.type !== "project") continue;
+      const bx = this.box(n.id);
+      if (bx && bx.t > you.b) firstRowTop = Math.min(firstRowTop, bx.t);
+    }
+    let minTargetTop = Infinity;
+    for (const t of targets) minTargetTop = Math.min(minTargetTop, this.box(t)?.t ?? Infinity);
+    const floor = Math.min(firstRowTop, minTargetTop) - ROW_MARGIN;
+    const ceil = you.b + ROW_MARGIN;
+
+    const k = skills.length;
+    const room = floor - ceil;
+    const level = k > 1 && room > 0 ? Math.max(6, Math.min(GAP, room / (k - 1))) : GAP;
+
+    const draw = (el: SVGPathElement, exitY: number, colX: number, bandY: number, entryX: number, entryY: number) => {
+      el.setAttribute(
+        "d",
+        crowsFoot(exitX, exitY, 1, 0) +
+          ` M ${exitX} ${exitY} L ${colX} ${exitY} L ${colX} ${bandY} L ${entryX} ${bandY} L ${entryX} ${entryY}` +
+          tickMark(entryX, entryY, 0, entryY >= bandY ? -1 : 1),
+      );
+    };
+
+    if (k === 1) {
+      const exitY = youCenterY + this.attributeOffset.get(skills[0])!.dy;
+      for (const { to, el } of lit) {
+        const t = this.box(to);
+        if (!t) continue;
+        draw(el, exitY, exitX + GAP, floor, this.clearEntryX(to, t, 0, floor), t.t);
+      }
+      return;
+    }
+
+    const target = targets[0];
+    const t = this.box(target);
+    if (!t) return;
+    const spacing = Math.min(GAP, ((t.r - t.l) * 0.8) / (k - 1));
+    const half = (spacing * (k - 1)) / 2;
+    const center = this.clearEntryX(target, t, half, floor - level * (k - 1));
+    const goesRight = center - half > exitX + GAP * k;
+
+    skills.forEach((skill, i) => {
+      const el = lit.find((e) => e.from === skill)!.el;
+      const exitY = youCenterY + this.attributeOffset.get(skill)!.dy;
+      const colX = exitX + GAP * (k - i);
+      const bandY = goesRight ? floor - level * (k - 1 - i) : floor - level * i;
+      draw(el, exitY, colX, bandY, center + half - spacing * i, t.t);
+    });
+  }
+
+  /**
+   * Picks where along a project's top edge to drop into it — as close to
+   * its center as possible while keeping [x - half, x + half] clear of
+   * every other card between `fromY` and the project's top, so the drop
+   * never passes behind another card.
+   */
+  private clearEntryX(targetId: string, t: Box, half: number, fromY: number): number {
+    const lo = t.l + 10 + half;
+    const hi = t.r - 10 - half;
+    if (lo > hi) return t.x;
+    const blocks: [number, number][] = [];
+    for (const id of this.nodeEls.keys()) {
+      if (id === targetId) continue;
+      const o = this.box(id);
+      if (!o || o.b <= fromY || o.t >= t.t) continue;
+      blocks.push([o.l - 6 - half, o.r + 6 + half]);
+    }
+    const isClear = (x: number) => blocks.every(([a, b]) => x < a || x > b);
+    const candidates = [t.x, lo, hi, ...blocks.flatMap(([a, b]) => [a - 1, b + 1])].filter(
+      (x) => x >= lo && x <= hi && isClear(x),
+    );
+    candidates.sort((a, b) => Math.abs(a - t.x) - Math.abs(b - t.x));
+    return candidates[0] ?? t.x;
   }
 
   resetLayout() {
@@ -602,6 +731,7 @@ export class GraphCanvas {
       this.nodesLayer.classList.add("settling");
       window.setTimeout(() => this.nodesLayer.classList.remove("settling"), 500);
     }
+    this.center();
     this.render();
   }
 

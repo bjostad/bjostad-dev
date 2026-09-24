@@ -97,11 +97,6 @@ body {
   overflow: hidden;
 }
 
-.graph-root {
-  position: absolute;
-  inset: 0;
-}
-
 .viewport {
   position: absolute;
   inset: 0;
@@ -162,6 +157,10 @@ body {
   opacity: 0.12;
 }
 
+.edge.concealed {
+  opacity: 0;
+}
+
 .nodes-layer {
   position: absolute;
   inset: 0;
@@ -186,7 +185,9 @@ body {
   cursor: grab;
   touch-action: none;
   user-select: none;
-  transition: opacity 0.15s ease, border-color 0.15s ease;
+  /* Property order matters: canvas.ts sets a matching per-property
+     transition-delay so a card lights up as its line arrives. */
+  transition: opacity 0.25s ease, border-color 0.15s ease;
 }
 
 .node:hover,
@@ -257,21 +258,68 @@ body {
   margin-right: 4px;
 }
 
-.node-you {
-  min-width: 200px;
-  max-width: 240px;
+.node-field a {
+  color: var(--accent-primary);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+}
+
+.node-field a:hover,
+.node-field a:focus-visible {
+  border-bottom-color: var(--accent-primary);
+  outline: none;
+}
+
+.node.node-you {
+  width: 640px;
+  min-width: 0;
+  max-width: none;
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  column-gap: 20px;
+  padding: 16px 16px 14px 18px;
   border-color: var(--accent-primary);
+}
+
+.you-info {
+  display: flex;
+  flex-direction: column;
 }
 
 .node-you-inner {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+}
+
+.node-you .node-title {
+  font-size: 20px;
+}
+
+.node-you .node-subtitle {
+  font-size: 12px;
+  color: var(--accent-secondary);
+}
+
+.you-pitch {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.you-hint {
+  margin: auto 0 0;
+  padding-top: 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--accent-secondary);
 }
 
 .you-photo {
-  width: 44px;
-  height: 44px;
+  width: 60px;
+  height: 60px;
   border-radius: 2px;
   object-fit: cover;
   flex-shrink: 0;
@@ -290,15 +338,16 @@ body {
 }
 
 .node-contact {
+  max-width: 260px;
   border-color: var(--accent-secondary);
 }
 
 /* ---------- Attributes (skills, as fields on the "you" entity) ---------- */
 
 .attr-list {
-  margin: 10px -6px -4px;
-  padding-top: 8px;
-  border-top: 1px solid var(--line-edge);
+  margin: -4px -6px -4px 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--line-edge);
 }
 
 .attr-row {

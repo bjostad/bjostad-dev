@@ -110,7 +110,7 @@ export function computeInitialLayout(data: GraphData): Map<string, LayoutNode> {
   // — e.g. an experience entry — pulls toward where it actually ends up,
   // not toward a since-moved placeholder.
   const you = byType.get("you")?.[0];
-  if (you) positions.set(you.id, { id: you.id, x: -360, y: TYPE_ROW_Y.you });
+  if (you) positions.set(you.id, { id: you.id, x: -240, y: TYPE_ROW_Y.you });
 
   relax(data, positions, typeById, 120);
 

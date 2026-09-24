@@ -119,7 +119,8 @@ const you: GraphNode = {
   type: "you",
   title: "BJ Bjostad",
   subtitle: "Software Engineer",
-  summary: "One line about what you build and care about.",
+  summary:
+    "10+ years in enterprise software, from Tableau's platform to co-founding an agentic AI startup, now designing and shipping full-stack products end to end.",
   photo: "/you.jpg", // placeholder headshot — swap for a real one later
   position: { x: 0, y: 0 },
 };
