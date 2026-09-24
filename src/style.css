@@ -219,6 +219,32 @@ body {
   margin-top: 2px;
 }
 
+.node-highlights {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--line-edge);
+}
+
+.node-highlights li {
+  position: relative;
+  padding-left: 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.node-highlights li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.7em;
+  width: 4px;
+  height: 4px;
+  background: var(--accent-primary);
+}
+
 .node-field {
   font-size: 11px;
   color: var(--text-muted);
@@ -387,6 +413,18 @@ body {
   line-height: 1.5;
 }
 
+.detail-highlights {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.detail-highlights li + li {
+  margin-top: 6px;
+}
+
 .detail-fields {
   margin: 16px 0;
 }
@@ -396,6 +434,16 @@ body {
   font-size: 11px;
   color: var(--accent-secondary);
   margin-top: 8px;
+}
+
+.detail-fields dd a {
+  color: var(--accent-primary);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.detail-fields dd a:hover {
+  border-bottom-color: var(--accent-primary);
 }
 
 .detail-fields dd {
@@ -509,6 +557,20 @@ body {
 .list-tags {
   font-family: var(--font-mono);
   font-size: 11px;
+}
+
+.list-container ul.list-highlights {
+  list-style: disc;
+  margin: 6px 0;
+  padding-left: 18px;
+}
+
+.list-container .list-highlights li {
+  padding: 2px 0;
+  border-bottom: none;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .list-container a {

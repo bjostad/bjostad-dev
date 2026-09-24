@@ -29,8 +29,9 @@ export function renderListView(root: HTMLElement, data: GraphData) {
   if (projects.length) {
     root.appendChild(section("Projects", projects.map((p) => `
       <li>
-        <strong>${esc(p.title)}</strong>
+        <strong>${esc(p.title)}</strong>${p.subtitle ? ` — ${esc(p.subtitle)}` : ""}
         ${p.summary ? `<p>${esc(p.summary)}</p>` : ""}
+        ${p.highlights?.length ? `<ul class="list-highlights">${p.highlights.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>` : ""}
         ${p.tags?.length ? `<p class="list-tags">${p.tags.map(esc).join(", ")}</p>` : ""}
         ${(p.links ?? []).map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`).join(" · ")}
       </li>`).join("")));

@@ -30,6 +30,9 @@ export interface GraphNode {
   title: string;
   subtitle?: string;
   summary?: string;
+  highlights?: string[];
+  /** A few short phrases shown directly on the graph card. */
+  cardHighlights?: string[];
   fields?: GraphField[];
   links?: GraphLink[];
   tags?: string[];

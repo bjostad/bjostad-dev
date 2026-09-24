@@ -86,6 +86,7 @@ export class GraphCanvas {
     }
     this.center();
     this.render();
+    document.fonts?.ready.then(() => this.remeasure());
 
     // A click that isn't on a node or attribute (they stopPropagation)
     // clears a pinned attribute highlight.
@@ -225,13 +226,27 @@ export class GraphCanvas {
   private measureAttributeOffsets() {
     const youEl = this.nodeEls.get("you");
     if (!youEl) return;
-    const youRect = youEl.getBoundingClientRect();
-    const youCenterY = youRect.top + youRect.height / 2;
-    const halfWidth = youRect.width / 2;
+    // Layout offsets rather than getBoundingClientRect, so a transform in
+    // flight (the boot-in scale animation, zoom) can't skew the result.
+    const halfWidth = youEl.offsetWidth / 2;
+    const halfHeight = youEl.offsetHeight / 2;
     for (const [attrId, rowEl] of this.attributeEls) {
-      const r = rowEl.getBoundingClientRect();
-      this.attributeOffset.set(attrId, { dx: halfWidth, dy: r.top + r.height / 2 - youCenterY });
+      let top = rowEl.offsetHeight / 2;
+      for (let el: HTMLElement | null = rowEl; el && el !== youEl; el = el.offsetParent as HTMLElement | null) {
+        top += el.offsetTop + (el.offsetParent === youEl ? youEl.clientTop : 0);
+      }
+      this.attributeOffset.set(attrId, { dx: halfWidth, dy: top - halfHeight });
     }
+  }
+
+  /** Card sizes are first measured before web fonts finish loading; the
+   * fallback font wraps text differently, so re-measure once they're in. */
+  private remeasure() {
+    for (const [id, el] of this.nodeEls) {
+      this.nodeSize.set(id, { w: el.offsetWidth, h: el.offsetHeight });
+    }
+    this.measureAttributeOffsets();
+    this.render();
   }
 
   private nodeInnerHtml(node: GraphNode): string {
@@ -272,9 +287,14 @@ export class GraphCanvas {
       .map((f) => `<div class="node-field"><span class="field-label">${escapeHtml(f.label)}</span> ${escapeHtml(f.value)}</div>`)
       .join("");
 
+    const highlightsHtml = node.cardHighlights?.length
+      ? `<ul class="node-highlights">${node.cardHighlights.map((h) => `<li>${escapeHtml(h)}</li>`).join("")}</ul>`
+      : "";
+
     return `
       <div class="node-title">${escapeHtml(node.title)}</div>
       ${node.subtitle ? `<div class="node-subtitle">${escapeHtml(node.subtitle)}</div>` : ""}
+      ${highlightsHtml}
       ${fieldsHtml}`;
   }
 

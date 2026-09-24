@@ -26,19 +26,38 @@ const SKILL_CATEGORY: Record<string, SkillCategory> = {
   FastAPI: "framework",
   Langchain: "framework",
   "Google App Script": "tool",
+  "Google Sheets API": "tool",
 };
 
 interface ProjectSeed {
   id: string;
   title: string;
   tags: string[];
-  // TODO — fill these in later:
+  /** One-line tagline shown on the graph card. */
+  subtitle?: string;
+  /** Up to ~3 short phrases shown on the graph card, under the tagline. */
+  cardHighlights?: string[];
   summary?: string;
+  highlights?: string[];
   links?: { label: string; url: string }[];
 }
 
 const projects: ProjectSeed[] = [
-  { id: "gebo-ing", title: "gebo.ing", tags: ["TypeScript", "JavaScript", "NodeJS", "Postgres"] },
+  {
+    id: "gebo-ing",
+    title: "gebo.ing",
+    subtitle: "Universal wishlists & gift registries",
+    cardHighlights: ["Web scraping (JSON-LD)", "Token-based access control", "Postgres + Prisma schema"],
+    summary:
+      "A store-agnostic wishlist and gift registry app: add items from any retailer, organize them into lists and event registries, and share them with friends and family.",
+    highlights: [
+      "Layered URL ingestion: JSON-LD/Schema.org product parsing, Open Graph tags, retailer-specific heuristics, and a headless fallback, plus a one-click bookmarklet.",
+      "Spoiler protection: purchases are hashed so other gift-givers can see an item is claimed, while the list owner can't until the day after the occasion.",
+      "Tokenized sharing for single lists or a whole registry, viewable without the recipient signing up.",
+      "PostgreSQL (via Prisma) as the primary store, with automatic one-way backup sync to the user's own Google Sheets.",
+    ],
+    tags: ["TypeScript", "React", "NodeJS", "Express", "Postgres", "Prisma", "Google Sheets API"],
+  },
   { id: "freyr-farm", title: "freyr.farm", tags: ["TypeScript", "JavaScript", "Python", "Postgres"] },
   { id: "pacemakr", title: "pacemakr.com", tags: ["JavaScript"] },
   {
@@ -46,20 +65,62 @@ const projects: ProjectSeed[] = [
     title: "smartsherpa.ai",
     tags: ["TypeScript", "React", "Python", "Java", "Spring Boot", "Langchain", "NodeJS", "FastAPI", "Postgres"],
   },
-  { id: "staryteller", title: "staryteller.com", tags: ["Java", "Kotlin", "TypeScript", "Spring Boot", "Postgres"] },
-  { id: "lukk-boksen", title: "Lukk Boksen", tags: ["Dart", "Google App Script", "Flutter"] },
-  { id: "9t9-club", title: "9T9.club", tags: ["TypeScript", "Firebase"] },
+  {
+    id: "staryteller",
+    title: "staryteller.com",
+    subtitle: "AI bedtime story app",
+    cardHighlights: ["LLM streaming over SSE", "Offline-first LWW sync", "Skia GPU canvas rendering"],
+    summary:
+      "A mobile app that writes personalized bedtime stories with an LLM and adds each one as a star in a growing constellation to explore.",
+    highlights: [
+      "Stories stream from the OpenAI API to the app over Server-Sent Events, with moderation pre-checks and per-tier daily quotas.",
+      "Interactive Skia constellation with Reanimated gestures; each star's position is derived from a hash of its story, with a repulsion pass to keep stars legible.",
+      "Offline-first storage in WatermelonDB with last-write-wins sync to PostgreSQL.",
+      "Spring Boot 3 API on GCP Cloud Run and Cloud SQL, with RevenueCat webhooks keeping subscription tiers in sync.",
+    ],
+    tags: ["TypeScript", "React Native", "Java", "Spring Boot", "Postgres", "OpenAI", "GCP"],
+  },
+  {
+    id: "lukk-boksen",
+    title: "Lukk Boksen",
+    subtitle: "Multiplayer mobile dice game",
+    cardHighlights: ["Serverless Sheets backend", "Forge2D rigid-body physics", "Subset-sum backtracking"],
+    summary:
+      "A Flutter take on the classic dice game Shut the Box, with physics-driven dice, shake-to-roll, and asynchronous multiplayer that runs without any server.",
+    highlights: [
+      "Serverless multiplayer on the Google Drive and Sheets APIs: Drive handles game discovery and sharing permissions, and each game is a spreadsheet with an append-only turn log.",
+      "Round-by-round and self-paced game modes, with automatic sudden-death tiebreakers.",
+      "2D rigid-body dice physics with Flame and Forge2D, rolled by shaking the phone.",
+      "Finished games archive to each player's own Drive, and the last player to view the results cleans up the shared game file.",
+    ],
+    tags: ["Dart", "Flutter", "Riverpod", "Forge2D", "Google Sheets API", "Google Drive API"],
+  },
+  {
+    id: "9t9-club",
+    title: "9T9.club",
+    subtitle: "Team performance & playbook platform",
+    cardHighlights: ["Sigmoid rating model", "Real-time Firestore sync", "OAuth + Sheets API sync"],
+    summary:
+      "A multi-sport platform for high school and college programs that turns combine results into video-game-style 1–99 player ratings, alongside an interactive playbook and team tools.",
+    highlights: [
+      "Logistic S-curve rating engine that normalizes raw measurements (including lower-is-better tests like sprint times) into 1–99 metric, pillar, and overall ratings.",
+      "Interactive 2D playbook editor built on Konva, with route drawing, snap-to-line-of-scrimmage placement, saved formations, and play animation.",
+      "Real-time Firestore data layer with role-based access, so evaluations entered on the field update leaderboards and player profiles immediately.",
+      "Two-way Google Sheets sync over OAuth so coaches can keep their existing spreadsheets, plus Gemini-generated scouting reports.",
+    ],
+    tags: ["TypeScript", "React", "Firebase", "Konva", "D3.js", "Google Sheets API", "Gemini"],
+  },
   { id: "escapistball", title: "EscapistBall Analytics", tags: ["JavaScript", "Google App Script"] },
 ];
 
-// Fill in later: name/title/pitch, and swap in a real photo path (e.g. "/you.jpg").
+// Fill in later: name/title/pitch.
 const you: GraphNode = {
   id: "you",
   type: "you",
-  title: "Your Name",
+  title: "BJ Bjostad",
   subtitle: "Software Engineer",
   summary: "One line about what you build and care about.",
-  photo: undefined,
+  photo: "/you.jpg", // placeholder headshot — swap for a real one later
   position: { x: 0, y: 0 },
 };
 
@@ -83,14 +144,14 @@ const contact: GraphNode = {
   type: "contact",
   title: "Contact & Resume",
   fields: [
-    { label: "email", value: "you@bjostad.dev" },
-    { label: "github", value: "github.com/yourhandle" },
-    { label: "linkedin", value: "linkedin.com/in/yourhandle" },
+    { label: "email", value: "bjostad@gmail.com" },
+    { label: "github", value: "github.com/bjostad" },
+    { label: "linkedin", value: "linkedin.com/in/bjostad" },
   ],
   links: [
-    { label: "Email", url: "mailto:you@bjostad.dev" },
-    { label: "GitHub", url: "https://github.com/yourhandle" },
-    { label: "LinkedIn", url: "https://linkedin.com/in/yourhandle" },
+    { label: "Email", url: "mailto:bjostad@gmail.com" },
+    { label: "GitHub", url: "https://github.com/bjostad" },
+    { label: "LinkedIn", url: "https://linkedin.com/in/bjostad" },
     { label: "Resume (PDF)", url: "/resume.pdf" },
   ],
   position: { x: 0.85, y: 0.7 },
@@ -136,7 +197,10 @@ export function buildGraph(): GraphData {
       id: p.id,
       type: "project",
       title: p.title,
+      subtitle: p.subtitle,
+      cardHighlights: p.cardHighlights,
       summary: p.summary,
+      highlights: p.highlights,
       tags: p.tags,
       links: p.links,
     });

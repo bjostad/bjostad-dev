@@ -46,11 +46,21 @@ export class DetailPanel {
     parts.push(`<h2>${esc(node.title)}</h2>`);
     if (node.subtitle) parts.push(`<p class="detail-subtitle">${esc(node.subtitle)}</p>`);
     if (node.summary) parts.push(`<p class="detail-summary">${esc(node.summary)}</p>`);
+    if (node.highlights?.length) {
+      parts.push(`<ul class="detail-highlights">${node.highlights.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>`);
+    }
 
+    // A field whose label matches a link's label (e.g. "email" / "Email")
+    // renders its value as that link instead of plain text, so the
+    // separate links list below doesn't have to repeat it.
+    const linkedLabels = new Set<string>();
     if (node.fields?.length) {
       parts.push('<dl class="detail-fields">');
       for (const f of node.fields) {
-        parts.push(`<dt>${esc(f.label)}</dt><dd>${esc(f.value)}</dd>`);
+        const match = node.links?.find((l) => l.label.toLowerCase() === f.label.toLowerCase());
+        if (match) linkedLabels.add(match.label.toLowerCase());
+        const value = match ? `<a href="${esc(match.url)}" target="_blank" rel="noopener">${esc(f.value)}</a>` : esc(f.value);
+        parts.push(`<dt>${esc(f.label)}</dt><dd>${value}</dd>`);
       }
       parts.push("</dl>");
     }
@@ -70,9 +80,10 @@ export class DetailPanel {
         </div>`);
     }
 
-    if (node.links?.length) {
+    const remainingLinks = node.links?.filter((l) => !linkedLabels.has(l.label.toLowerCase())) ?? [];
+    if (remainingLinks.length) {
       parts.push('<div class="detail-links">');
-      for (const l of node.links) {
+      for (const l of remainingLinks) {
         const download = /resume/i.test(l.label) ? " download" : "";
         parts.push(`<a href="${esc(l.url)}" target="_blank" rel="noopener"${download}>${esc(l.label)}</a>`);
       }
