@@ -1,4 +1,4 @@
-import type { GraphData, GraphNode } from "../data/types";
+import type { GraphData, GraphNode, SkillCategory } from "../data/types";
 import { computeInitialLayout, reduceAttributeProjectCrossings, type LayoutNode } from "./layout";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -8,7 +8,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 // still match, so a stale save from a previous version would otherwise
 // keep "validating" and loading over whatever the current default should
 // be, even though nothing about the content changed.
-const STORAGE_KEY = "bjostad-graph-layout-v4";
+const STORAGE_KEY = "bjostad-graph-layout-v6";
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 // How long a skill's projects stay revealed after the pointer leaves its
 // row — long enough to travel from the row to one of those project cards.
@@ -19,6 +19,19 @@ const MIN_SCALE = 0.45;
 const ROW_MARGIN = 14;
 // One uniform spacing for parallel lines, both vertical and horizontal.
 const GAP = 16;
+// Four hues spread far apart around the wheel, skipping the 150–225° band
+// so none can be mistaken for the contact line's mint or the project
+// connector's blue, plus a near-white that stands apart from all of them.
+const CATEGORY_COLOR: Record<SkillCategory, string> = {
+  language: "hsl(52, 95%, 58%)", // yellow
+  framework: "hsl(262, 90%, 72%)", // violet
+  platform: "hsl(0, 85%, 64%)", // red
+  tool: "hsl(210, 25%, 90%)", // near-white
+  database: "hsl(95, 70%, 55%)", // lime
+};
+const UNCATEGORIZED_COLOR = "hsl(220, 15%, 70%)";
+// Space below "you" the "hover a skill" callout (style.css .coach) hangs in.
+const COACH_CLEARANCE = 84;
 
 interface AttributeOffset {
   dx: number;
@@ -69,15 +82,12 @@ export class GraphCanvas {
     const stored = this.loadPositions();
     this.positions = stored ?? computeInitialLayout(data);
 
-    // Each attribute gets its own hue (golden-angle spacing keeps any
-    // count of attributes visually spread out rather than clustering) so
-    // its outgoing lines to projects are distinguishable from every other
-    // attribute's.
+    // Lines are colored by skill type (language, framework, …), matching
+    // each skill's type badge, so the badges double as the color key.
     const you = data.nodes.find((n) => n.type === "you");
-    (you?.attributes ?? []).forEach((attr, i) => {
-      const hue = Math.round((i * 137.508) % 360);
-      this.attrColor.set(attr.id, `hsl(${hue}, 62%, 66%)`);
-    });
+    for (const attr of you?.attributes ?? []) {
+      this.attrColor.set(attr.id, attr.category ? CATEGORY_COLOR[attr.category] : UNCATEGORIZED_COLOR);
+    }
 
     this.root.innerHTML = "";
     this.root.classList.add("graph-root");
@@ -188,7 +198,8 @@ export class GraphCanvas {
   private buildEdges() {
     for (const e of this.data.edges) {
       const el = document.createElementNS(SVG_NS, "path");
-      el.setAttribute("class", `edge edge-${e.kind}`);
+      const toContact = this.data.nodes.some((n) => n.id === e.to && n.type === "contact");
+      el.setAttribute("class", `edge edge-${e.kind}${toContact ? " edge-contact" : ""}`);
       const color = this.attrColor.get(e.from);
       if (color) el.style.stroke = color;
       this.svg.appendChild(el);
@@ -322,7 +333,7 @@ export class GraphCanvas {
       const attrRows = (node.attributes ?? [])
         .map(
           (a) => `
-            <div class="attr-row" data-attr-id="${escapeHtml(a.id)}" tabindex="0" role="button" aria-label="${escapeHtml(a.label)} — highlight connected projects">
+            <div class="attr-row" data-attr-id="${escapeHtml(a.id)}" style="--cat: ${this.attrColor.get(a.id)}" tabindex="0" role="button" aria-label="${escapeHtml(a.label)} — highlight connected projects">
               <span class="attr-label">${escapeHtml(a.label)}</span>
               ${a.category ? `<span class="attr-badge">${escapeHtml(a.category)}</span>` : ""}
             </div>`,
@@ -335,9 +346,9 @@ export class GraphCanvas {
           <div class="node-title">${escapeHtml(node.title)}</div>
           ${node.subtitle ? `<div class="node-subtitle">${escapeHtml(node.subtitle)}</div>` : ""}
           ${node.summary ? `<p class="you-pitch">${escapeHtml(node.summary)}</p>` : ""}
-          <p class="you-hint">Hover a skill or a project to see how they connect.</p>
         </div>
-        ${attrRows ? `<div class="attr-list">${attrRows}</div>` : ""}`;
+        ${attrRows ? `<div class="attr-list">${attrRows}</div>` : ""}
+        ${attrRows ? `<div class="coach" role="note"><span class="coach-arrow" aria-hidden="true"></span>Hover a skill to see the projects I've used it in</div>` : ""}`;
     }
 
     // A field whose label matches one of the node's links (e.g. "email" /
@@ -422,7 +433,18 @@ export class GraphCanvas {
   private setHover(id: string | null) {
     window.clearTimeout(this.clearTimer);
     this.hoverId = id;
+    // Lines drawn by hovering either a skill or a project run through the
+    // space the callout sits in — and either way, the visitor has found it.
+    if (id) this.dismissCoach();
     this.applyHighlight();
+  }
+
+  /** The "hover a skill" callout only needs to teach the interaction once. */
+  private dismissCoach() {
+    const coach = this.nodeEls.get("you")?.querySelector<HTMLElement>(".coach");
+    if (!coach || coach.classList.contains("coach-out")) return;
+    coach.classList.add("coach-out");
+    window.setTimeout(() => coach.remove(), reducedMotion ? 0 : 300);
   }
 
   private scheduleClear() {
@@ -596,13 +618,14 @@ export class GraphCanvas {
       // the page — the generic elbow below assumes one side is strictly
       // above the other, so this one leaves the top of "you", clears above
       // both boxes, and drops into the top of "contact".
+      // One-to-many: one "you", many contact methods on the contact card.
       if (toType === "contact") {
         const clearAbove = Math.min(rowTop.get(fromType) ?? a.t, rowTop.get(toType) ?? b.t) - ROW_MARGIN;
         el.setAttribute(
           "d",
           `M ${a.x} ${a.t} L ${a.x} ${clearAbove} L ${b.x} ${clearAbove} L ${b.x} ${b.t}` +
             tickMark(a.x, a.t, 0, -1) +
-            tickMark(b.x, b.t, 0, -1),
+            crowsFoot(b.x, b.t, 0, -1),
         );
         continue;
       }
@@ -801,12 +824,23 @@ export class GraphCanvas {
    * the experience/project rows, shifts everything except "you" and
    * "contact" (which sits level with "you" on purpose) down by however
    * much is needed to clear it.
+   *
+   * The gap it keeps is the corridor routeSkillEdges runs horizontal
+   * lines through: one level per skill of the most-connected project,
+   * GAP apart, with ROW_MARGIN at both ends — and never less than the
+   * room the "hover a skill" callout needs.
    */
   private ensureClearanceBelowYou() {
     const you = this.positions.get("you");
     const youSize = this.nodeSize.get("you");
     if (!you || !youSize) return;
-    const youBottom = you.y + youSize.h / 2 + 40;
+    const skillsPerProject = new Map<string, number>();
+    for (const e of this.data.edges) {
+      if (this.attributeOffset.has(e.from)) skillsPerProject.set(e.to, (skillsPerProject.get(e.to) ?? 0) + 1);
+    }
+    const maxSkills = Math.max(1, ...skillsPerProject.values());
+    const corridor = Math.max(COACH_CLEARANCE, ROW_MARGIN * 2 + GAP * (maxSkills - 1));
+    const youBottom = you.y + youSize.h / 2 + corridor;
 
     let topOfRest = Infinity;
     for (const n of this.data.nodes) {

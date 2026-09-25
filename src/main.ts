@@ -2,7 +2,7 @@ import "./style.css";
 import { buildGraph } from "./data/graph";
 import { GraphCanvas } from "./graph/canvas";
 import { DetailPanel } from "./graph/panel";
-import { ProjectDetail } from "./graph/projectDetail";
+import { DetailSection } from "./graph/detailSection";
 import { renderListView } from "./graph/listview";
 import { initBackground } from "./background";
 
@@ -24,7 +24,7 @@ app.innerHTML = `
     <main id="canvas-container" class="canvas-container"></main>
     <div id="list-container" class="list-container" hidden></div>
   </div>
-  <section id="project-detail" class="project-detail" aria-live="polite" hidden></section>
+  <section id="detail-section" class="project-detail" aria-live="polite" hidden></section>
   <svg class="page-links" aria-hidden="true"><path class="page-link" /></svg>
 `;
 
@@ -34,15 +34,15 @@ const toggleBtn = document.querySelector<HTMLButtonElement>("#toggle-view")!;
 const resetBtn = document.querySelector<HTMLButtonElement>("#reset-layout")!;
 
 const panel = new DetailPanel(document.body);
-const projectDetail = new ProjectDetail(
-  document.querySelector<HTMLElement>("#project-detail")!,
+const detailSection = new DetailSection(
+  document.querySelector<HTMLElement>("#detail-section")!,
   document.querySelector<SVGSVGElement>(".page-links")!,
 );
 const canvas = new GraphCanvas(canvasContainer, data, (node) => {
-  if (node.type === "project") projectDetail.show(node);
+  if (node.type === "project" || node.type === "contact") detailSection.show(node);
   else panel.open(node);
 });
-canvas.onRender = () => projectDetail.refresh();
+canvas.onRender = () => detailSection.refresh();
 renderListView(listContainer, data);
 
 resetBtn.addEventListener("click", () => canvas.resetLayout());
@@ -55,5 +55,5 @@ toggleBtn.addEventListener("click", () => {
   toggleBtn.setAttribute("aria-pressed", String(showingList));
   toggleBtn.textContent = showingList ? "Graph view" : "List view";
   resetBtn.hidden = showingList;
-  projectDetail.refresh();
+  detailSection.refresh();
 });

@@ -1,4 +1,4 @@
-import type { GraphData, GraphNode } from "../data/types";
+import type { GraphAttribute, GraphData, GraphNode, SkillCategory } from "../data/types";
 
 export interface LayoutNode {
   id: string;
@@ -127,69 +127,46 @@ export function computeInitialLayout(data: GraphData): Map<string, LayoutNode> {
 
 /**
  * Reorders "you"'s attribute list (top-to-bottom row order, mutated in
- * place on the node) and the project row (left-to-right x order, mutated
- * in place on `data.nodes`) to cut down how much their connecting lines
- * cross — the ER-diagram equivalent of the classic layered-graph
- * crossing-reduction trick. An attribute wants to sit at the row height
- * closest to the average x of the projects it connects to, and a project
- * wants to sit at the x closest to the average row height of the
- * attributes that connect to it; this alternates a few passes of that
- * until it settles.
+ * place on the node) to cut down how much its lines cross — the
+ * ER-diagram equivalent of the classic layered-graph crossing-reduction
+ * trick. Rows are grouped by skill type first (CATEGORY_ORDER); within a
+ * type, each skill sits at the row closest to the average position of the
+ * projects it connects to.
+ *
+ * Project order itself is left alone: it's the order projects are listed
+ * in graph.ts, which is a deliberate ranking (strongest on the left).
  *
  * Called once up front regardless of whether positions end up coming
- * from a fresh layout or a restored session — it only touches ordering
- * (attribute rows, project index), not x/y, so it's safe either way.
+ * from a fresh layout or a restored session — it only touches ordering,
+ * not x/y, so it's safe either way.
  */
 export function reduceAttributeProjectCrossings(data: GraphData) {
   const you = data.nodes.find((n) => n.type === "you");
   const projects = data.nodes.filter((n) => n.type === "project");
   if (!you?.attributes?.length || !projects.length) return;
 
-  const attrToProjects = new Map<string, string[]>();
-  const projectToAttrs = new Map<string, string[]>();
+  const projectIndex = new Map(projects.map((n, i) => [n.id, i]));
+  const attrToProjects = new Map<string, number[]>();
   for (const e of data.edges) {
     if (e.kind !== "built-with") continue; // attribute -> project edges only
-    (attrToProjects.get(e.from) ?? attrToProjects.set(e.from, []).get(e.from)!).push(e.to);
-    (projectToAttrs.get(e.to) ?? projectToAttrs.set(e.to, []).get(e.to)!).push(e.from);
+    const list = attrToProjects.get(e.from) ?? [];
+    list.push(projectIndex.get(e.to) ?? 0);
+    attrToProjects.set(e.from, list);
   }
 
-  let attrOrder = you.attributes.map((a) => a.id);
-  let projectOrder = projects.map((n) => n.id);
-
-  const barycenter = (id: string, neighborsOf: Map<string, string[]>, otherIndex: Map<string, number>, fallback: number) => {
-    const neighbors = neighborsOf.get(id);
-    if (!neighbors?.length) return fallback;
-    let sum = 0;
-    for (const nid of neighbors) sum += otherIndex.get(nid) ?? fallback;
-    return sum / neighbors.length;
+  const originalIndex = new Map(you.attributes.map((a, i) => [a.id, i]));
+  const barycenter = (id: string) => {
+    const idx = attrToProjects.get(id);
+    return idx?.length ? idx.reduce((s, i) => s + i, 0) / idx.length : originalIndex.get(id)!;
   };
+  const categoryRank = (a: GraphAttribute) => CATEGORY_ORDER.indexOf(a.category ?? "tool");
 
-  for (let pass = 0; pass < 4; pass++) {
-    const projectIndex = new Map(projectOrder.map((id, i) => [id, i]));
-    const attrFallback = new Map(attrOrder.map((id, i) => [id, i]));
-    attrOrder = [...attrOrder].sort(
-      (a, b) =>
-        barycenter(a, attrToProjects, projectIndex, attrFallback.get(a)!) -
-        barycenter(b, attrToProjects, projectIndex, attrFallback.get(b)!),
-    );
-
-    const attrIndex = new Map(attrOrder.map((id, i) => [id, i]));
-    const projectFallback = new Map(projectOrder.map((id, i) => [id, i]));
-    projectOrder = [...projectOrder].sort(
-      (a, b) =>
-        barycenter(a, projectToAttrs, attrIndex, projectFallback.get(a)!) -
-        barycenter(b, projectToAttrs, attrIndex, projectFallback.get(b)!),
-    );
-  }
-
-  const attrById = new Map(you.attributes.map((a) => [a.id, a]));
-  you.attributes = attrOrder.map((id) => attrById.get(id)!);
-
-  const projectById = new Map(projects.map((n) => [n.id, n]));
-  const orderedProjects = projectOrder.map((id) => projectById.get(id)!);
-  const projectSlots = data.nodes.map((n) => (n.type === "project" ? orderedProjects.shift()! : n));
-  data.nodes.splice(0, data.nodes.length, ...projectSlots);
+  you.attributes = [...you.attributes].sort(
+    (a, b) => categoryRank(a) - categoryRank(b) || barycenter(a.id) - barycenter(b.id),
+  );
 }
+
+const CATEGORY_ORDER: SkillCategory[] = ["language", "framework", "platform", "tool", "database"];
 
 /** Deterministic pseudo-random value in [-1, 1] derived from a string. */
 function pseudoRandom(id: string, salt: string): number {

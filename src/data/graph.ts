@@ -9,7 +9,7 @@ import type { GraphAttribute, GraphData, GraphEdge, GraphNode, SkillCategory } f
  * ---------------------------------------------------------------------
  */
 
-/** Known category for each skill, used only for the small type-badge accent. */
+/** Each skill's type — sets its badge, its line color, and its row group on the card. */
 const SKILL_CATEGORY: Record<string, SkillCategory> = {
   TypeScript: "language",
   JavaScript: "language",
@@ -20,14 +20,37 @@ const SKILL_CATEGORY: Record<string, SkillCategory> = {
   Postgres: "database",
   Firebase: "database",
   NodeJS: "platform",
+  GCP: "platform",
   "Spring Boot": "framework",
   React: "framework",
+  "React Native": "framework",
   Flutter: "framework",
   FastAPI: "framework",
+  Express: "framework",
   Langchain: "framework",
+  OpenAI: "tool",
+  Gemini: "tool",
   "Google App Script": "tool",
   "Google Sheets API": "tool",
 };
+
+/**
+ * Skills worth listing on your card even when only one project uses them —
+ * the ones a recruiter scans for. Anything else used by a single project
+ * stays a tag on that project (shown in its detail section).
+ */
+const FEATURED_SKILLS = new Set([
+  "React Native",
+  "Flutter",
+  "Dart",
+  "Firebase",
+  "GCP",
+  "OpenAI",
+  "Gemini",
+  "Langchain",
+  "FastAPI",
+  "Express",
+]);
 
 interface ProjectSeed {
   id: string;
@@ -49,23 +72,7 @@ interface ProjectSeed {
 }
 
 const projects: ProjectSeed[] = [
-  {
-    id: "gebo-ing",
-    title: "gebo.ing",
-    subtitle: "Universal wishlists & gift registries",
-    cardHighlights: ["Web scraping (JSON-LD)", "Token-based access control", "Postgres + Prisma schema"],
-    summary:
-      "A store-agnostic wishlist and gift registry app: add items from any retailer, organize them into lists and event registries, and share them with friends and family.",
-    highlights: [
-      "Layered URL ingestion: JSON-LD/Schema.org product parsing, Open Graph tags, retailer-specific heuristics, and a headless fallback, plus a one-click bookmarklet.",
-      "Spoiler protection: purchases are hashed so other gift-givers can see an item is claimed, while the list owner can't until the day after the occasion.",
-      "Tokenized sharing for single lists or a whole registry, viewable without the recipient signing up.",
-      "PostgreSQL (via Prisma) as the primary store, with automatic one-way backup sync to the user's own Google Sheets.",
-    ],
-    tags: ["TypeScript", "React", "NodeJS", "Express", "Postgres", "Prisma", "Google Sheets API"],
-  },
-  { id: "freyr-farm", title: "freyr.farm", tags: ["TypeScript", "JavaScript", "Python", "Postgres"] },
-  { id: "pacemakr", title: "pacemakr.com", tags: ["JavaScript"] },
+  // Listed in display order: left to right on the graph, strongest first.
   {
     id: "smartsherpa",
     title: "smartsherpa.ai",
@@ -87,21 +94,6 @@ const projects: ProjectSeed[] = [
     tags: ["TypeScript", "React Native", "Java", "Spring Boot", "Postgres", "OpenAI", "GCP"],
   },
   {
-    id: "lukk-boksen",
-    title: "Lukk Boksen",
-    subtitle: "Multiplayer mobile dice game",
-    cardHighlights: ["Serverless Sheets backend", "Forge2D rigid-body physics", "Subset-sum backtracking"],
-    summary:
-      "A Flutter take on the classic dice game Shut the Box, with physics-driven dice, shake-to-roll, and asynchronous multiplayer that runs without any server.",
-    highlights: [
-      "Serverless multiplayer on the Google Drive and Sheets APIs: Drive handles game discovery and sharing permissions, and each game is a spreadsheet with an append-only turn log.",
-      "Round-by-round and self-paced game modes, with automatic sudden-death tiebreakers.",
-      "2D rigid-body dice physics with Flame and Forge2D, rolled by shaking the phone.",
-      "Finished games archive to each player's own Drive, and the last player to view the results cleans up the shared game file.",
-    ],
-    tags: ["Dart", "Flutter", "Riverpod", "Forge2D", "Google Sheets API", "Google Drive API"],
-  },
-  {
     id: "9t9-club",
     title: "9T9.club",
     subtitle: "Team performance & playbook platform",
@@ -116,6 +108,39 @@ const projects: ProjectSeed[] = [
     ],
     tags: ["TypeScript", "React", "Firebase", "Konva", "D3.js", "Google Sheets API", "Gemini"],
   },
+  {
+    id: "gebo-ing",
+    title: "gebo.ing",
+    subtitle: "Universal wishlists & gift registries",
+    cardHighlights: ["Web scraping (JSON-LD)", "Token-based access control", "Postgres + Prisma schema"],
+    summary:
+      "A store-agnostic wishlist and gift registry app: add items from any retailer, organize them into lists and event registries, and share them with friends and family.",
+    highlights: [
+      "Layered URL ingestion: JSON-LD/Schema.org product parsing, Open Graph tags, retailer-specific heuristics, and a headless fallback, plus a one-click bookmarklet.",
+      "Spoiler protection: purchases are hashed so other gift-givers can see an item is claimed, while the list owner can't until the day after the occasion.",
+      "Tokenized sharing for single lists or a whole registry, viewable without the recipient signing up.",
+      "PostgreSQL (via Prisma) as the primary store, with automatic one-way backup sync to the user's own Google Sheets.",
+    ],
+    tags: ["TypeScript", "React", "NodeJS", "Express", "Postgres", "Prisma", "Google Sheets API"],
+    demoUrl: "https://gebo.ing",
+  },
+  { id: "freyr-farm", title: "freyr.farm", tags: ["TypeScript", "JavaScript", "Python", "Postgres"] },
+  {
+    id: "lukk-boksen",
+    title: "Lukk Boksen",
+    subtitle: "Multiplayer mobile dice game",
+    cardHighlights: ["Serverless Sheets backend", "Forge2D rigid-body physics", "Subset-sum backtracking"],
+    summary:
+      "A Flutter take on the classic dice game Shut the Box, with physics-driven dice, shake-to-roll, and asynchronous multiplayer that runs without any server.",
+    highlights: [
+      "Serverless multiplayer on the Google Drive and Sheets APIs: Drive handles game discovery and sharing permissions, and each game is a spreadsheet with an append-only turn log.",
+      "Round-by-round and self-paced game modes, with automatic sudden-death tiebreakers.",
+      "2D rigid-body dice physics with Flame and Forge2D, rolled by shaking the phone.",
+      "Finished games archive to each player's own Drive, and the last player to view the results cleans up the shared game file.",
+    ],
+    tags: ["Dart", "Flutter", "Riverpod", "Forge2D", "Google Sheets API", "Google Drive API"],
+  },
+  { id: "pacemakr", title: "pacemakr.com", tags: ["JavaScript"] },
   { id: "escapistball", title: "EscapistBall Analytics", tags: ["JavaScript", "Google App Script"] },
 ];
 
@@ -164,7 +189,8 @@ const contact: GraphNode = {
   position: { x: 0.85, y: 0.7 },
 };
 
-/** Promotion rule: a skill becomes an attribute of "you" once it's used by 2+ projects. */
+/** Promotion rule: a skill becomes an attribute of "you" once it's used by
+ * 2+ projects, or if it's in FEATURED_SKILLS. */
 function buildAttributesAndEdges(): { attributes: GraphAttribute[]; edges: GraphEdge[] } {
   const counts = new Map<string, string[]>();
   for (const p of projects) {
@@ -179,7 +205,7 @@ function buildAttributesAndEdges(): { attributes: GraphAttribute[]; edges: Graph
   const edges: GraphEdge[] = [];
 
   for (const [skill, projectIds] of counts) {
-    if (projectIds.length < 2) continue; // stays a tag, not an attribute
+    if (projectIds.length < 2 && !FEATURED_SKILLS.has(skill)) continue; // stays a tag, not an attribute
     const id = `skill-${slug(skill)}`;
     attributes.push({ id, label: skill, category: SKILL_CATEGORY[skill] });
     for (const pid of projectIds) {

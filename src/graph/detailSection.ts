@@ -2,19 +2,24 @@ import type { GraphNode } from "../data/types";
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const DURATION_MS = 1000;
-const TICK = 10;
+// Match the cardinality marks drawn inside the graph (canvas.ts).
+const TICK_LEN = 9;
+const FORK_LEN = 12;
+const FORK_SPREAD = 6;
 // Shared by the scroll and the line draw so the line reaches the section
 // exactly as the section arrives.
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const EASE_CSS = "cubic-bezier(0.65, 0, 0.35, 1)";
 
 /**
- * Full-screen project overview below the graph. Opening a project scrolls
- * down to it while a line draws from the project's card into the
- * section's header, so the section reads as another entity hanging off
- * the diagram rather than a separate page.
+ * Full-screen section below the graph for a project or for contact info.
+ * Opening one scrolls down to it while a line draws from the clicked
+ * card into the section's header, so the section reads as another
+ * entity hanging off the diagram rather than a separate page. A project
+ * is one-to-one with its section (a tick at each end, blue); contact is
+ * drawn many-to-many (a crow's foot at each end, green).
  */
-export class ProjectDetail {
+export class DetailSection {
   private section: HTMLElement;
   private svg: SVGSVGElement;
   private path: SVGPathElement;
@@ -39,7 +44,9 @@ export class ProjectDetail {
   show(node: GraphNode) {
     this.node = node;
     this.state = "opening";
-    this.section.innerHTML = render(node);
+    this.section.innerHTML = node.type === "contact" ? renderContact(node) : renderProject(node);
+    this.section.dataset.kind = node.type;
+    this.path.classList.toggle("page-link-contact", node.type === "contact");
     this.section.hidden = false;
     this.section.querySelector(".detail-back")!.addEventListener("click", () => this.close());
 
@@ -51,12 +58,18 @@ export class ProjectDetail {
       this.scrollTo(top, () => {
         this.state = "open";
         heading?.focus({ preventScroll: true });
+        // Embeds load only once the section has arrived: a PDF viewer (or
+        // an embedded site) can grab focus as it loads, and the browser
+        // then jumps straight to it, cutting the scroll animation short.
+        this.section.querySelectorAll<HTMLIFrameElement>("iframe[data-src]").forEach((f) => {
+          f.src = f.dataset.src!;
+        });
       });
     });
   }
 
-  /** Scrolls back to the graph while the line retracts into the project's
-   * card, then removes the section. */
+  /** Scrolls back to the graph while the line retracts into the card it
+   * came from, then removes the section. */
   close() {
     if (this.state === "closed" || this.state === "closing") return;
     this.state = "closing";
@@ -110,12 +123,15 @@ export class ProjectDetail {
     const y2 = p.top + sy;
     const runY = s.top + sy + 24;
 
+    // Subpaths in drawing order (start mark, line, end mark), so the
+    // draw-in travels from the card and the retract ends back at it.
+    const many = this.node!.type === "contact";
     this.svg.style.height = `${document.documentElement.scrollHeight}px`;
     this.path.setAttribute(
       "d",
-      tick(x1, y1 + TICK * 0.7) +
+      (many ? crowsFoot(x1, y1, 1) : tick(x1, y1 + TICK_LEN * 0.7)) +
         ` M ${x1} ${y1} L ${x1} ${runY} L ${x2} ${runY} L ${x2} ${y2}` +
-        tick(x2, y2 - TICK * 0.7),
+        (many ? crowsFoot(x2, y2, -1) : tick(x2, y2 - TICK_LEN * 0.7)),
     );
   }
 
@@ -139,12 +155,34 @@ export class ProjectDetail {
   }
 }
 
-/** One-to-one cardinality mark across a vertical line. */
+/** "One" mark: a short bar across a vertical line. */
 function tick(x: number, y: number): string {
-  return ` M ${x - TICK / 2} ${y} L ${x + TICK / 2} ${y}`;
+  return ` M ${x - TICK_LEN / 2} ${y} L ${x + TICK_LEN / 2} ${y}`;
 }
 
-function render(node: GraphNode): string {
+/** "Many" mark on a vertical line: three feet planted on the box edge at
+ * `y`, converging `dir` (+1 down, -1 up) away from the box. */
+function crowsFoot(x: number, y: number, dir: 1 | -1): string {
+  const cy = y + dir * FORK_LEN;
+  return ` M ${x - FORK_SPREAD} ${y} L ${x} ${cy} M ${x} ${y} L ${x} ${cy} M ${x + FORK_SPREAD} ${y} L ${x} ${cy}`;
+}
+
+function header(node: GraphNode, tagline: string | undefined, actions = ""): string {
+  return `
+    <header class="detail-head">
+      <span class="detail-port" aria-hidden="true"></span>
+      <div class="detail-titles">
+        <h2 tabindex="-1">${esc(node.title)}</h2>
+        ${tagline ? `<p class="detail-tagline">${esc(tagline)}</p>` : ""}
+      </div>
+      <div class="detail-actions">
+        ${actions}
+        <button type="button" class="btn detail-back">↑ Back to graph</button>
+      </div>
+    </header>`;
+}
+
+function renderProject(node: GraphNode): string {
   const links = (node.links ?? [])
     .map((l) => `<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`)
     .join("");
@@ -157,7 +195,7 @@ function render(node: GraphNode): string {
           <span>Live demo</span>
           <a href="${esc(node.demoUrl)}" target="_blank" rel="noopener">Open in new tab ↗</a>
         </div>
-        <iframe src="${esc(node.demoUrl)}" title="Live demo of ${esc(node.title)}" loading="lazy"
+        <iframe data-src="${esc(node.demoUrl)}" title="Live demo of ${esc(node.title)}"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
       </div>`;
   } else if (node.screenshot) {
@@ -183,21 +221,51 @@ function render(node: GraphNode): string {
 
   return `
     <div class="detail-inner">
-      <header class="detail-head">
-        <span class="detail-port" aria-hidden="true"></span>
-        <div class="detail-titles">
-          <h2 tabindex="-1">${esc(node.title)}</h2>
-          ${node.subtitle ? `<p class="detail-tagline">${esc(node.subtitle)}</p>` : ""}
-        </div>
-        <div class="detail-actions">
-          ${links}
-          <button type="button" class="btn detail-back">↑ Back to graph</button>
-        </div>
-      </header>
+      ${header(node, node.subtitle, links)}
       ${media}
       <div class="detail-body">
         <div class="detail-main">${main}</div>
         <aside class="detail-side">${glance}${stack}</aside>
+      </div>
+    </div>`;
+}
+
+function renderContact(node: GraphNode): string {
+  const links = node.links ?? [];
+  const resume = links.find((l) => /resume/i.test(l.label));
+  const rows = (node.fields ?? []).map((f) => {
+    const link = links.find((l) => l.label.toLowerCase() === f.label.toLowerCase());
+    const value = link
+      ? `<a href="${esc(link.url)}" target="_blank" rel="noopener">${esc(f.value)} ↗</a>`
+      : esc(f.value);
+    return `<li><span class="field-label">${esc(f.label)}</span>${value}</li>`;
+  });
+  if (resume) {
+    rows.push(
+      `<li><span class="field-label">resume</span><a href="${esc(resume.url)}" target="_blank" rel="noopener">Open PDF ↗</a></li>`,
+    );
+  }
+
+  const preview = resume
+    ? `
+      <div class="media-frame resume-frame">
+        <div class="media-bar">
+          <span>Résumé</span>
+          <a href="${esc(resume.url)}" target="_blank" rel="noopener">Open in new tab ↗</a>
+        </div>
+        <iframe data-src="${esc(resume.url)}" title="Résumé"></iframe>
+      </div>`
+    : "";
+
+  return `
+    <div class="detail-inner">
+      ${header(node, "Email, GitHub, LinkedIn, and my résumé")}
+      <div class="contact-body">
+        <div>
+          <h3>Reach me</h3>
+          <ul class="contact-list">${rows.join("")}</ul>
+        </div>
+        ${preview}
       </div>
     </div>`;
 }
