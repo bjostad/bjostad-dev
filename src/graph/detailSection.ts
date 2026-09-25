@@ -26,6 +26,9 @@ export class DetailSection {
   private node: GraphNode | null = null;
   private scrollFrame = 0;
   private state: "closed" | "opening" | "open" | "closing" = "closed";
+  /** Where the page was scrolled when the section opened — "back" returns
+   * there (on a phone that's partway down the column, not the top). */
+  private returnY = 0;
 
   constructor(section: HTMLElement, svg: SVGSVGElement) {
     this.section = section;
@@ -35,13 +38,17 @@ export class DetailSection {
     for (const type of ["wheel", "touchstart", "keydown"]) {
       window.addEventListener(type, () => cancelAnimationFrame(this.scrollFrame), { passive: true });
     }
-    // Scrolling all the way back up by hand counts as returning to the graph.
+    // Scrolling back up by hand until the section is entirely out of view
+    // counts as returning to the graph.
     window.addEventListener("scroll", () => {
-      if (this.state === "open" && window.scrollY <= 0) this.close();
+      if (this.state === "open" && this.section.getBoundingClientRect().top >= window.innerHeight - 1) {
+        this.close(false);
+      }
     });
   }
 
   show(node: GraphNode) {
+    if (this.state === "closed") this.returnY = window.scrollY;
     this.node = node;
     this.state = "opening";
     this.section.innerHTML = node.type === "contact" ? renderContact(node) : renderProject(node);
@@ -73,19 +80,23 @@ export class DetailSection {
   }
 
   /** Scrolls back to the graph while the line retracts into the card it
-   * came from, then removes the section. */
-  close() {
+   * came from, then removes the section. When the visitor has already
+   * scrolled back up by hand (scrollBack false), it only retracts — the
+   * section is out of view, so removing it doesn't move anything on screen. */
+  close(scrollBack = true) {
     if (this.state === "closed" || this.state === "closing") return;
     this.state = "closing";
     this.animateLine(true);
-    this.scrollTo(0, () => {
+    const finish = () => {
       this.path.getAnimations().forEach((a) => a.cancel());
       this.section.hidden = true;
       this.section.innerHTML = "";
       this.node = null;
       this.state = "closed";
       this.refresh();
-    });
+    };
+    if (scrollBack) this.scrollTo(this.returnY, finish);
+    else window.setTimeout(finish, reducedMotion ? 0 : DURATION_MS);
   }
 
   /** Draws the line out from the card, or (retract) back into it. */

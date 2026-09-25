@@ -1082,14 +1082,65 @@ a.btn {
     font-size: 12px;
   }
 
-  .node {
-    min-width: 100px;
-    max-width: 150px;
-    padding: 8px 9px;
-  }
-
   .detail-panel {
     width: 100%;
+  }
+
+  /* Phone layout (canvas.ts layoutMobile): one full-width column of cards
+     at full size that the page scrolls through, instead of a scaled-down
+     diagram. --mobile-card-w leaves a lane on the right for skill lines. */
+  .graph-screen {
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .canvas-container {
+    flex: none;
+  }
+
+  #reset-layout {
+    display: none;
+  }
+
+  .node,
+  .node.node-you,
+  .node-contact {
+    width: var(--mobile-card-w);
+    min-width: 0;
+    max-width: none;
+    touch-action: auto; /* let swipes on a card scroll the page */
+    cursor: default;
+  }
+
+  .node.node-you {
+    grid-template-columns: 1fr;
+    row-gap: 12px;
+    padding: 10px;
+  }
+
+  .you-hero {
+    height: 250px;
+  }
+
+  .attr-list {
+    margin: 0;
+    padding-left: 0;
+    border-left: none;
+  }
+}
+
+/* The callout says "tap" on touch screens and "hover" where there's a mouse. */
+.coach-tap {
+  display: none;
+}
+
+@media (hover: none) {
+  .coach-hover {
+    display: none;
+  }
+
+  .coach-tap {
+    display: inline;
   }
 }
 

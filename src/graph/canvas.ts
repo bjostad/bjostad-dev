@@ -32,6 +32,13 @@ const CATEGORY_COLOR: Record<SkillCategory, string> = {
 const UNCATEGORIZED_COLOR = "hsl(220, 15%, 70%)";
 // Space below "you" the "hover a skill" callout (style.css .coach) hangs in.
 const COACH_CLEARANCE = 84;
+// Phones get a single full-width column of cards instead of the diagram
+// layout, with skill lines running down a channel along the right edge.
+// Keep in sync with the max-width media query in style.css.
+const MOBILE_QUERY = window.matchMedia("(max-width: 640px)");
+const MOBILE_PAD = 14;
+const MOBILE_CHANNEL = 34;
+const MOBILE_CARD_GAP = 16;
 
 interface AttributeOffset {
   dx: number;
@@ -67,6 +74,9 @@ export class GraphCanvas {
   /** Projects reachable through a skill attribute — dim until one of their skills is picked. */
   private revealable = new Set<string>();
   private shownEdges = new Set<SVGPathElement>();
+  private mobile = MOBILE_QUERY.matches;
+  /** Height of the single-column mobile layout, which the page scrolls through. */
+  private mobileHeight = 0;
 
   constructor(root: HTMLElement, data: GraphData, onExpand: (node: GraphNode) => void) {
     this.root = root;
@@ -79,7 +89,7 @@ export class GraphCanvas {
     // coming from a fresh layout or a restored session.
     reduceAttributeProjectCrossings(this.data);
 
-    const stored = this.loadPositions();
+    const stored = this.mobile ? null : this.loadPositions();
     this.positions = stored ?? computeInitialLayout(data);
 
     // Lines are colored by skill type (language, framework, …), matching
@@ -107,11 +117,13 @@ export class GraphCanvas {
     this.buildEdges();
     this.buildNodes();
     this.measureAttributeOffsets();
-    // Only a freshly computed layout gets the no-overlap / clearance
-    // guarantees — a stored layout may include positions the user
-    // dragged on top of each other on purpose, and that choice should
-    // stick across reloads.
-    if (!stored) {
+    if (this.mobile) {
+      this.layoutMobile();
+    } else if (!stored) {
+      // Only a freshly computed layout gets the no-overlap / clearance
+      // guarantees — a stored layout may include positions the user
+      // dragged on top of each other on purpose, and that choice should
+      // stick across reloads.
       this.resolveOverlaps();
       this.ensureClearanceBelowYou();
     }
@@ -134,8 +146,16 @@ export class GraphCanvas {
     });
 
     window.addEventListener("resize", () => {
-      this.center();
-      this.onRender?.();
+      if (MOBILE_QUERY.matches !== this.mobile) {
+        this.switchLayoutMode();
+      } else if (this.mobile) {
+        this.layoutMobile(); // width changed (e.g. rotation): cards resize, so re-stack
+        this.center();
+        this.render();
+      } else {
+        this.center();
+        this.onRender?.();
+      }
     });
 
     if (!reducedMotion) {
@@ -165,10 +185,68 @@ export class GraphCanvas {
     }
   }
 
+  /**
+   * Phone layout: every card full width in one column — you, contact, then
+   * projects in their ranked order — at full size, with the page scrolling
+   * through them. Cards are narrower than the screen by MOBILE_CHANNEL so
+   * skill lines have a lane down the right edge (see routeSkillEdgesMobile).
+   */
+  private layoutMobile() {
+    const width = this.root.clientWidth;
+    this.root.style.setProperty("--mobile-card-w", `${width - MOBILE_PAD * 2 - MOBILE_CHANNEL}px`);
+    for (const [id, el] of this.nodeEls) this.nodeSize.set(id, { w: el.offsetWidth, h: el.offsetHeight });
+    this.measureAttributeOffsets();
+
+    const order = [
+      ...this.data.nodes.filter((n) => n.type === "you"),
+      ...this.data.nodes.filter((n) => n.type === "contact"),
+      ...this.data.nodes.filter((n) => n.type !== "you" && n.type !== "contact"),
+    ];
+    const positions = new Map<string, LayoutNode>();
+    let y = MOBILE_PAD;
+    for (const n of order) {
+      const s = this.nodeSize.get(n.id)!;
+      positions.set(n.id, { id: n.id, x: MOBILE_PAD + s.w / 2, y: y + s.h / 2 });
+      // The "tap a skill" callout hangs below "you", above the contact card.
+      y += s.h + (n.type === "you" ? COACH_CLEARANCE : MOBILE_CARD_GAP);
+    }
+    this.positions = positions;
+    this.mobileHeight = y - MOBILE_CARD_GAP + MOBILE_PAD;
+  }
+
+  /** Crossing the phone breakpoint (resizing a desktop window, rotating a
+   * tablet) swaps between the column and diagram layouts. */
+  private switchLayoutMode() {
+    this.mobile = MOBILE_QUERY.matches;
+    if (this.mobile) {
+      this.layoutMobile();
+    } else {
+      this.root.style.removeProperty("--mobile-card-w");
+      this.root.style.height = "";
+      for (const [id, el] of this.nodeEls) this.nodeSize.set(id, { w: el.offsetWidth, h: el.offsetHeight });
+      this.measureAttributeOffsets();
+      const stored = this.loadPositions();
+      this.positions = stored ?? computeInitialLayout(this.data);
+      if (!stored) {
+        this.resolveOverlaps();
+        this.ensureClearanceBelowYou();
+      }
+    }
+    this.center();
+    this.render();
+    this.applyHighlight();
+  }
+
   /** Scales (never up) and centers the whole graph. If even
    * the minimum scale doesn't fit, it anchors to the top-left instead so
-   * "you" stays in view. */
+   * "you" stays in view. On phones the column is shown at full size and
+   * the page scrolls through it instead. */
   private center() {
+    if (this.mobile) {
+      this.viewport.style.transform = "translate(0px, 0px) scale(1)";
+      this.root.style.height = `${this.mobileHeight}px`;
+      return;
+    }
     const rect = this.root.getBoundingClientRect();
     let minX = Infinity;
     let minY = Infinity;
@@ -271,6 +349,7 @@ export class GraphCanvas {
           return;
         }
         this.pinnedId = this.pinnedId === id ? null : id;
+        this.dismissCoach();
         this.applyHighlight();
       });
       rowEl.addEventListener("keydown", (ev) => {
@@ -310,10 +389,14 @@ export class GraphCanvas {
   /** Card sizes are first measured before web fonts finish loading; the
    * fallback font wraps text differently, so re-measure once they're in. */
   private remeasure() {
-    for (const [id, el] of this.nodeEls) {
-      this.nodeSize.set(id, { w: el.offsetWidth, h: el.offsetHeight });
+    if (this.mobile) {
+      this.layoutMobile(); // card heights changed, so the column re-stacks
+    } else {
+      for (const [id, el] of this.nodeEls) {
+        this.nodeSize.set(id, { w: el.offsetWidth, h: el.offsetHeight });
+      }
+      this.measureAttributeOffsets();
     }
-    this.measureAttributeOffsets();
     this.center();
     this.render();
   }
@@ -356,7 +439,7 @@ export class GraphCanvas {
               </div>`
             : ""
         }
-        ${attrRows ? `<div class="coach" role="note"><span class="coach-arrow" aria-hidden="true"></span>Hover a skill to see the projects I've used it in</div>` : ""}`;
+        ${attrRows ? `<div class="coach" role="note"><span class="coach-arrow" aria-hidden="true"></span><span class="coach-hover">Hover</span><span class="coach-tap">Tap</span> a skill to see the projects I've used it in</div>` : ""}`;
     }
 
     // A field whose label matches one of the node's links (e.g. "email" /
@@ -402,6 +485,8 @@ export class GraphCanvas {
     // links and skill rows must not start a drag, or their own click
     // never fires and the card's detail panel opens instead.
     if ((ev.target as Element).closest("a, .attr-row")) return;
+    // No dragging in the phone column: a swipe on a card should scroll the page.
+    if (this.mobile) return;
     ev.preventDefault();
     const pos = this.positions.get(id)!;
     const scale = this.getScale();
@@ -627,6 +712,13 @@ export class GraphCanvas {
       // above the other, so this one leaves the top of "you", clears above
       // both boxes, and drops into the top of "contact".
       // One-to-many: one "you", many contact methods on the contact card.
+      if (toType === "contact" && this.mobile) {
+        // Contact sits directly below "you" in the phone column: a straight
+        // drop near the left edge, clear of the callout hanging on the right.
+        const x = Math.max(a.l, b.l) + 24;
+        el.setAttribute("d", `M ${x} ${a.b} L ${x} ${b.t}` + tickMark(x, a.b, 0, 1) + crowsFoot(x, b.t, 0, -1));
+        continue;
+      }
       if (toType === "contact") {
         const clearAbove = Math.min(rowTop.get(fromType) ?? a.t, rowTop.get(toType) ?? b.t) - ROW_MARGIN;
         el.setAttribute(
@@ -692,6 +784,11 @@ export class GraphCanvas {
     const youCenterY = (you.t + you.b) / 2;
     const exitX = you.r;
 
+    if (this.mobile) {
+      this.routeSkillEdgesMobile(lit, skills, you, youCenterY);
+      return;
+    }
+
     let firstRowTop = Infinity;
     for (const n of this.data.nodes) {
       if (n.type !== "project") continue;
@@ -744,6 +841,58 @@ export class GraphCanvas {
   }
 
   /**
+   * Phone routing: every card shares the same right edge, so skill lines
+   * leave "you" to the right, run down the free channel between the cards
+   * and the screen edge, and turn left into each project's right side —
+   * never behind another card.
+   *
+   * One skill -> many projects: a single trunk with a branch into each.
+   * Many skills -> one project: a trunk per skill, packed into the channel,
+   * with the top row taking the outermost trunk and the lowest entry point
+   * so the lines nest instead of crossing.
+   */
+  private routeSkillEdgesMobile(
+    lit: { from: string; to: string; el: SVGPathElement }[],
+    skills: string[],
+    you: Box,
+    youCenterY: number,
+  ) {
+    const exitX = you.r;
+    const channelLeft = exitX + 4;
+    const channelWidth = this.root.clientWidth - 4 - channelLeft;
+    const draw = (el: SVGPathElement, exitY: number, trunkX: number, target: Box, entryY: number) => {
+      el.setAttribute(
+        "d",
+        crowsFoot(exitX, exitY, 1, 0) +
+          ` M ${exitX} ${exitY} L ${trunkX} ${exitY} L ${trunkX} ${entryY} L ${target.r} ${entryY}` +
+          tickMark(target.r, entryY, 1, 0),
+      );
+    };
+
+    const k = skills.length;
+    if (k === 1) {
+      const exitY = youCenterY + this.attributeOffset.get(skills[0])!.dy;
+      const trunkX = channelLeft + Math.min(14, channelWidth / 2);
+      for (const { to, el } of lit) {
+        const t = this.box(to);
+        if (t) draw(el, exitY, trunkX, t, (t.t + t.b) / 2);
+      }
+      return;
+    }
+
+    const t = this.box(lit[0].to);
+    if (!t) return;
+    const trunkGap = Math.max(2.5, Math.min(8, (channelWidth - 6) / k));
+    const spacing = Math.min(10, ((t.b - t.t) * 0.7) / (k - 1));
+    const centerY = (t.t + t.b) / 2;
+    skills.forEach((skill, i) => {
+      const el = lit.find((e) => e.from === skill)!.el;
+      const exitY = youCenterY + this.attributeOffset.get(skill)!.dy;
+      draw(el, exitY, channelLeft + 4 + trunkGap * (k - 1 - i), t, centerY + ((k - 1) / 2 - i) * spacing);
+    });
+  }
+
+  /**
    * Picks where along a project's top edge to drop into it — as close to
    * its center as possible while keeping [x - half, x + half] clear of
    * every other card between `fromY` and the project's top, so the drop
@@ -769,6 +918,7 @@ export class GraphCanvas {
   }
 
   resetLayout() {
+    if (this.mobile) return; // the phone column isn't draggable, so there's nothing to reset
     this.positions = computeInitialLayout(this.data);
     this.resolveOverlaps();
     this.ensureClearanceBelowYou();
