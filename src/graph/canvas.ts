@@ -341,13 +341,21 @@ export class GraphCanvas {
         .join("");
 
       return `
-        ${photo}
-        <div class="you-info">
-          <div class="node-title">${escapeHtml(node.title)}</div>
-          ${node.subtitle ? `<div class="node-subtitle">${escapeHtml(node.subtitle)}</div>` : ""}
-          ${node.summary ? `<p class="you-pitch">${escapeHtml(node.summary)}</p>` : ""}
+        <div class="you-hero">
+          ${photo}
+          <div class="you-overlay">
+            <div class="node-title">${escapeHtml(node.title)}</div>
+            ${node.summary ? `<p class="you-pitch">${escapeHtml(node.summary)}</p>` : ""}
+          </div>
         </div>
-        ${attrRows ? `<div class="attr-list">${attrRows}</div>` : ""}
+        ${
+          attrRows
+            ? `<div class="attr-list">
+                ${node.subtitle ? `<div class="attr-entity">${escapeHtml(node.subtitle)}</div>` : ""}
+                ${attrRows}
+              </div>`
+            : ""
+        }
         ${attrRows ? `<div class="coach" role="note"><span class="coach-arrow" aria-hidden="true"></span>Hover a skill to see the projects I've used it in</div>` : ""}`;
     }
 
@@ -499,10 +507,10 @@ export class GraphCanvas {
       const dim = this.revealable.has(nid) ? !lit : activeId !== null && nid !== "you";
       const wasDim = el.classList.contains("dim");
       if (dim || nid === activeId) {
-        el.style.transitionDelay = "";
+        el.style.removeProperty("--reveal-delay");
       } else if (wasDim) {
         const delay = Math.round((arrivalMs.get(nid) ?? 0) * 0.7);
-        el.style.transitionDelay = `${delay}ms, 0s`;
+        el.style.setProperty("--reveal-delay", `${delay}ms`);
       }
       el.classList.toggle("dim", dim);
     }

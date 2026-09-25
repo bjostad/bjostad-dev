@@ -49,6 +49,10 @@ export class DetailSection {
     this.path.classList.toggle("page-link-contact", node.type === "contact");
     this.section.hidden = false;
     this.section.querySelector(".detail-back")!.addEventListener("click", () => this.close());
+    const carousel = this.section.querySelector<HTMLElement>(".carousel");
+    if (carousel) {
+      wireCarousel(carousel, (node.screenshots ?? []).map((s, i) => s.caption ?? `Screenshot ${i + 1}`));
+    }
 
     requestAnimationFrame(() => {
       this.refresh();
@@ -198,8 +202,8 @@ function renderProject(node: GraphNode): string {
         <iframe data-src="${esc(node.demoUrl)}" title="Live demo of ${esc(node.title)}"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
       </div>`;
-  } else if (node.screenshot) {
-    media = `<div class="media-frame"><img src="${esc(node.screenshot)}" alt="Screenshot of ${esc(node.title)}" /></div>`;
+  } else if (node.screenshots?.length) {
+    media = renderScreenshots(node);
   } else {
     media = `<div class="media-frame media-placeholder"><span>Screenshot coming soon</span></div>`;
   }
@@ -228,6 +232,59 @@ function renderProject(node: GraphNode): string {
         <aside class="detail-side">${glance}${stack}</aside>
       </div>
     </div>`;
+}
+
+/** One screenshot shown whole, or several as a carousel (wired up by wireCarousel). */
+function renderScreenshots(node: GraphNode): string {
+  const shots = node.screenshots!;
+  const label = (i: number) => shots[i].caption ?? `Screenshot ${i + 1}`;
+  const imgs = shots
+    .map((s, i) => `<img src="${esc(s.src)}" alt="${esc(node.title)}: ${esc(label(i))}"${i === 0 ? "" : " hidden"} />`)
+    .join("");
+  if (shots.length === 1) return `<div class="media-frame media-shots">${imgs}</div>`;
+
+  const dots = shots
+    .map(
+      (_, i) =>
+        `<button type="button" class="carousel-dot" aria-label="Show ${esc(label(i))}"${i === 0 ? ' aria-current="true"' : ""}></button>`,
+    )
+    .join("");
+  return `
+    <div class="media-frame media-shots carousel" tabindex="0" aria-roledescription="carousel" aria-label="Screenshots of ${esc(node.title)}">
+      <div class="media-bar">
+        <span class="carousel-caption">${esc(label(0))}</span>
+        <span class="carousel-count">1 / ${shots.length}</span>
+      </div>
+      <div class="carousel-stage">
+        ${imgs}
+        <button type="button" class="carousel-nav carousel-prev" aria-label="Previous screenshot">‹</button>
+        <button type="button" class="carousel-nav carousel-next" aria-label="Next screenshot">›</button>
+      </div>
+      <div class="carousel-dots">${dots}</div>
+    </div>`;
+}
+
+function wireCarousel(root: HTMLElement, captions: string[]) {
+  const imgs = [...root.querySelectorAll<HTMLImageElement>(".carousel-stage img")];
+  const dots = [...root.querySelectorAll<HTMLButtonElement>(".carousel-dot")];
+  const caption = root.querySelector<HTMLElement>(".carousel-caption")!;
+  const count = root.querySelector<HTMLElement>(".carousel-count")!;
+  let index = 0;
+  const go = (i: number) => {
+    index = (i + imgs.length) % imgs.length;
+    imgs.forEach((img, j) => (img.hidden = j !== index));
+    dots.forEach((d, j) => (j === index ? d.setAttribute("aria-current", "true") : d.removeAttribute("aria-current")));
+    caption.textContent = captions[index];
+    count.textContent = `${index + 1} / ${imgs.length}`;
+  };
+  root.querySelector(".carousel-prev")!.addEventListener("click", () => go(index - 1));
+  root.querySelector(".carousel-next")!.addEventListener("click", () => go(index + 1));
+  dots.forEach((d, j) => d.addEventListener("click", () => go(j)));
+  root.addEventListener("keydown", (ev) => {
+    if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+    ev.preventDefault();
+    go(index + (ev.key === "ArrowRight" ? 1 : -1));
+  });
 }
 
 function renderContact(node: GraphNode): string {

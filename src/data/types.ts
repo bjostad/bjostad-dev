@@ -7,6 +7,12 @@ export interface GraphLink {
   url: string;
 }
 
+export interface Screenshot {
+  /** Path to an image in /public, e.g. "/screenshots/gebo.webp". */
+  src: string;
+  caption?: string;
+}
+
 export interface GraphField {
   label: string;
   value: string;
@@ -33,9 +39,9 @@ export interface GraphNode {
   highlights?: string[];
   /** A few short phrases shown directly on the graph card. */
   cardHighlights?: string[];
-  /** Project detail section media: an embeddable live demo URL wins over a screenshot path. */
+  /** Project detail section media: an embeddable live demo URL wins over screenshots. */
   demoUrl?: string;
-  screenshot?: string;
+  screenshots?: Screenshot[];
   fields?: GraphField[];
   links?: GraphLink[];
   tags?: string[];

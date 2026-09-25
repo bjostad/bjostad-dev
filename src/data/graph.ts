@@ -1,4 +1,4 @@
-import type { GraphAttribute, GraphData, GraphEdge, GraphNode, SkillCategory } from "./types";
+import type { GraphAttribute, GraphData, GraphEdge, GraphNode, Screenshot, SkillCategory } from "./types";
 
 /**
  * ---------------------------------------------------------------------
@@ -28,6 +28,7 @@ const SKILL_CATEGORY: Record<string, SkillCategory> = {
   FastAPI: "framework",
   Express: "framework",
   Langchain: "framework",
+  Vite: "tool",
   OpenAI: "tool",
   Gemini: "tool",
   "Google App Script": "tool",
@@ -65,10 +66,10 @@ interface ProjectSeed {
   /** Shown in the project's detail section — label them e.g. "Live site", "Source". */
   links?: { label: string; url: string }[];
   /** A URL to embed as a live demo in the detail section. Only works for
-   * sites that allow being framed; otherwise use `screenshot` instead. */
+   * sites that allow being framed; otherwise use `screenshots` instead. */
   demoUrl?: string;
-  /** Path to an image in /public, e.g. "/screenshots/gebo.png". */
-  screenshot?: string;
+  /** Images in /public shown in the detail section; more than one becomes a carousel. */
+  screenshots?: Screenshot[];
 }
 
 const projects: ProjectSeed[] = [
@@ -86,10 +87,10 @@ const projects: ProjectSeed[] = [
     summary:
       "A mobile app that writes personalized bedtime stories with an LLM and adds each one as a star in a growing constellation to explore.",
     highlights: [
-      "Stories stream from the OpenAI API to the app over Server-Sent Events, with moderation pre-checks and per-tier daily quotas.",
-      "Interactive Skia constellation with Reanimated gestures; each star's position is derived from a hash of its story, with a repulsion pass to keep stars legible.",
-      "Offline-first storage in WatermelonDB with last-write-wins sync to PostgreSQL.",
-      "Spring Boot 3 API on GCP Cloud Run and Cloud SQL, with RevenueCat webhooks keeping subscription tiers in sync.",
+      "Spring Boot 3 relays OpenAI's streaming completions to the React Native client over Server-Sent Events (SseEmitter to react-native-sse), gated by a Moderation API pre-check and atomic per-day quota counters.",
+      "Deterministic layout: a SHA-256 hash of each story's text maps to 2D coordinates, then an iterative repulsion pass resolves collisions between stars.",
+      "GPU-rendered Skia canvas driven by Reanimated worklets for gestures and off-screen edge indicators, plus a headless off-screen Skia surface for full-resolution image export.",
+      "Offline-first WatermelonDB (SQLite over JSI) with client-generated UUIDs and last-write-wins sync to PostgreSQL; containerized on Cloud Run with Cloud SQL, Secret Manager, and Cloud Build CI/CD.",
     ],
     tags: ["TypeScript", "React Native", "Java", "Spring Boot", "Postgres", "OpenAI", "GCP"],
   },
@@ -101,10 +102,10 @@ const projects: ProjectSeed[] = [
     summary:
       "A multi-sport platform for high school and college programs that turns combine results into video-game-style 1–99 player ratings, alongside an interactive playbook and team tools.",
     highlights: [
-      "Logistic S-curve rating engine that normalizes raw measurements (including lower-is-better tests like sprint times) into 1–99 metric, pillar, and overall ratings.",
-      "Interactive 2D playbook editor built on Konva, with route drawing, snap-to-line-of-scrimmage placement, saved formations, and play animation.",
-      "Real-time Firestore data layer with role-based access, so evaluations entered on the field update leaderboards and player profiles immediately.",
-      "Two-way Google Sheets sync over OAuth so coaches can keep their existing spreadsheets, plus Gemini-generated scouting reports.",
+      "Rating engine normalizes each metric against a configurable floor, ceiling, and direction, then maps it through a logistic S-curve (k = 6, x₀ = 0.35) into weighted 1–99 pillar and overall ratings.",
+      "Konva / React-Konva scene graph for the playbook editor, with custom hit-testing and snap-to-line-of-scrimmage geometry rather than DOM rendering.",
+      "Firestore data model with real-time onSnapshot listeners and role-based access (head coach, assistant, player, admin) driving live leaderboard recalculation.",
+      "Two-way Google Sheets v4 sync over scoped OAuth (batch imports, batchUpdate exports), plus structured Gemini (@google/genai) prompts over evaluation data.",
     ],
     tags: ["TypeScript", "React", "Firebase", "Konva", "D3.js", "Google Sheets API", "Gemini"],
   },
@@ -116,10 +117,10 @@ const projects: ProjectSeed[] = [
     summary:
       "A store-agnostic wishlist and gift registry app: add items from any retailer, organize them into lists and event registries, and share them with friends and family.",
     highlights: [
-      "Layered URL ingestion: JSON-LD/Schema.org product parsing, Open Graph tags, retailer-specific heuristics, and a headless fallback, plus a one-click bookmarklet.",
-      "Spoiler protection: purchases are hashed so other gift-givers can see an item is claimed, while the list owner can't until the day after the occasion.",
-      "Tokenized sharing for single lists or a whole registry, viewable without the recipient signing up.",
-      "PostgreSQL (via Prisma) as the primary store, with automatic one-way backup sync to the user's own Google Sheets.",
+      "Multi-tier scraper: server-side Cheerio parsing of JSON-LD (Schema.org Product) and Open Graph metadata, retailer-specific extraction rules, browser-header emulation, and failover to the Microlink API when a store blocks the direct fetch.",
+      "Buyer identity stored as a SHA-256 hash, with server-side date logic that strips purchase state from the owner's API responses until the day after their occasion.",
+      "Relational PostgreSQL schema via Prisma with cascading relations across lists, items, categories, and shares; UUID tokens grant access without an account.",
+      "Non-blocking one-way sync into the user's own Google Drive and Sheets (Drive v3, Sheets v4) over Google OAuth.",
     ],
     tags: ["TypeScript", "React", "NodeJS", "Express", "Postgres", "Prisma", "Google Sheets API"],
     demoUrl: "https://gebo.ing",
@@ -133,15 +134,48 @@ const projects: ProjectSeed[] = [
     summary:
       "A Flutter take on the classic dice game Shut the Box, with physics-driven dice, shake-to-roll, and asynchronous multiplayer that runs without any server.",
     highlights: [
-      "Serverless multiplayer on the Google Drive and Sheets APIs: Drive handles game discovery and sharing permissions, and each game is a spreadsheet with an append-only turn log.",
-      "Round-by-round and self-paced game modes, with automatic sudden-death tiebreakers.",
-      "2D rigid-body dice physics with Flame and Forge2D, rolled by shaking the phone.",
-      "Finished games archive to each player's own Drive, and the last player to view the results cleans up the shared game file.",
+      "Zero-infrastructure backend: Drive's files API serves as lobby and service discovery, and each game is a spreadsheet with game-state, participant, and append-only turn-log tabs.",
+      "Least-privilege OAuth (drive.file scope) through a custom http.BaseClient that injects bearer tokens into googleapis requests; Drive ACLs grant opponents write access.",
+      "Flame + Forge2D rigid-body dice triggered by accelerometer shake detection (acceleration-magnitude threshold), with settle detection before the turn resolves.",
+      "Bust detection solves subset-sum with recursive backtracking; the last player to view the results deletes the shared game file, a distributed cleanup with no server.",
     ],
     tags: ["Dart", "Flutter", "Riverpod", "Forge2D", "Google Sheets API", "Google Drive API"],
   },
-  { id: "pacemakr", title: "pacemakr.com", tags: ["JavaScript"] },
-  { id: "escapistball", title: "EscapistBall Analytics", tags: ["JavaScript", "Google App Script"] },
+  {
+    id: "pacemakr",
+    title: "pacemakr.com",
+    subtitle: "BPM-based Spotify workout playlists",
+    cardHighlights: ["Spotify Web API integration", "Tempo-based track search", "React + Express full stack"],
+    summary:
+      "A Spotify playlist generator that builds a playlist from any sequence of BPM segments over any length of time: say 10 minutes of high BPM, a 3-minute low-BPM break, then a ramp back up, shaped to fit a workout, run, or ride.",
+    highlights: [
+      "React + Vite client in TypeScript with an Express / Node.js server between it and the Spotify Web API.",
+      "Track discovery seeded by tempo: a target BPM combined with seed tracks, artists, and genres.",
+      "Now runs on mock data after Spotify's February 2026 API changes cut off the endpoints it relied on.",
+    ],
+    tags: ["TypeScript", "React", "Vite", "NodeJS", "Express"],
+    demoUrl: "https://pacemakr.com",
+  },
+  {
+    id: "escapistball",
+    title: "EscapistBall Analytics",
+    subtitle: "Fantasy baseball league analytics",
+    cardHighlights: ["Apps Script JSON backend", "Recharts data visualization", "Score-ceiling analysis"],
+    summary:
+      "An analytics dashboard for a private fantasy baseball league (\"It's like Moneyball, but with less money\"): season trends, head-to-head matchups, team profiles, and league leaders across every scoring category.",
+    highlights: [
+      "Serverless backend: a Google Apps Script web app exposes the league's data as JSON to a React + Vite single-page app.",
+      "Score Ceiling figures (each team's weekly maximum per stat) are generated on the backend and plotted against actuals.",
+      "Direction-aware ranking: lower-is-better categories like ERA and WHIP sort ascending, and rate stats keep three-decimal precision.",
+      "Recharts views built on memoized data transforms and custom tooltips, with series highlight on hover and pin on click.",
+    ],
+    tags: ["JavaScript", "React", "Vite", "Recharts", "Google App Script"],
+    screenshots: [
+      { src: "/screenshots/escapistball-overview.webp", caption: "League Overview" },
+      { src: "/screenshots/escapistball-profiles.webp", caption: "Team Profiles" },
+      { src: "/screenshots/escapistball-matchups.webp", caption: "Matchups Explorer" },
+    ],
+  },
 ];
 
 // Fill in later: name/title/pitch.
@@ -237,7 +271,7 @@ export function buildGraph(): GraphData {
       tags: p.tags,
       links: p.links,
       demoUrl: p.demoUrl,
-      screenshot: p.screenshot,
+      screenshots: p.screenshots,
     });
   }
 
