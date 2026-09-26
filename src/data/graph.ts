@@ -33,6 +33,7 @@ const SKILL_CATEGORY: Record<string, SkillCategory> = {
   Gemini: "tool",
   "Google App Script": "tool",
   "Google Sheets API": "tool",
+  Konva: "framework",
 };
 
 /**
@@ -41,6 +42,8 @@ const SKILL_CATEGORY: Record<string, SkillCategory> = {
  * stays a tag on that project (shown in its detail section).
  */
 const FEATURED_SKILLS = new Set([
+  "Python",
+  "JavaScript",
   "React Native",
   "Flutter",
   "Dart",
@@ -108,6 +111,14 @@ const projects: ProjectSeed[] = [
       "Two-way Google Sheets v4 sync over scoped OAuth (batch imports, batchUpdate exports), plus structured Gemini (@google/genai) prompts over evaluation data.",
     ],
     tags: ["TypeScript", "React", "Firebase", "Konva", "D3.js", "Google Sheets API", "Gemini"],
+    screenshots: [
+      { src: "/screenshots/9t9-playbook.webp", caption: "Playbook Editor" },
+      { src: "/screenshots/9t9-clubhouse.webp", caption: "Clubhouse Roster" },
+      { src: "/screenshots/9t9-evals.webp", caption: "Performance Evaluations" },
+      { src: "/screenshots/9t9-office.webp", caption: "Coach's Office" },
+      { src: "/screenshots/9t9-binder.webp", caption: "Binder" },
+      { src: "/screenshots/9t9-login.webp", caption: "Sign In" },
+    ],
   },
   {
     id: "gebo-ing",
@@ -125,7 +136,27 @@ const projects: ProjectSeed[] = [
     tags: ["TypeScript", "React", "NodeJS", "Express", "Postgres", "Prisma", "Google Sheets API"],
     demoUrl: "https://gebo.ing",
   },
-  { id: "freyr-farm", title: "freyr.farm", tags: ["TypeScript", "JavaScript", "Python", "Postgres"] },
+  {
+    id: "freyr-farm",
+    title: "freyr.farm",
+    subtitle: "Precision irrigation & garden planning",
+    cardHighlights: ["Multi-module Spring Boot API", "Physics-based watering model", "Fail-safe IoT valve control"],
+    summary:
+      "A multi-tenant smart irrigation platform that replaces fixed sprinkler timers with watering decisions computed from soil physics, crop needs, and local weather forecasts, then drives the valves directly.",
+    highlights: [
+      "Java 21 / Spring Boot 3.3 backend split into core, api, weather, and hardware modules with one-way dependencies; stateless JWT auth and organization-scoped multi-tenancy with OWNER / MEMBER / VIEWER roles over PostgreSQL 16 and Flyway migrations.",
+      "Watering engine models root-zone volume and available water capacity per soil texture, projects moisture with FAO-56 Penman-Monteith crop evapotranspiration (ET₀ × Kc) and 36-hour NWS rainfall infiltration, and skips cycles the forecast will cover.",
+      "Every recommendation is stored as a step-by-step reasoning trail (current moisture, projected ET, effective rain, deficit in gallons, runtime from summed emitter flow), so each automated decision is auditable.",
+      "Hardware-agnostic relay layer over REST and MQTT for ESP32, Shelly, and Raspberry Pi: each valve command carries a max runtime the device enforces locally, zones on a shared line are mutually excluded, and out-of-range probe readings fall back to ET-only modeling.",
+      "To-scale react-konva bed designer with emitter coverage circles, and a per-plant heatmap that maps each crop's deviation from its moisture band through piecewise RGB interpolation.",
+    ],
+    tags: ["TypeScript", "React", "Vite", "Konva", "Java", "Spring Boot", "Postgres", "MQTT"],
+    screenshots: [
+      { src: "/screenshots/freyr-bed-designer.webp", caption: "Bed Designer" },
+      { src: "/screenshots/freyr-garden-map.webp", caption: "Garden Map & Condition Heatmap" },
+      { src: "/screenshots/freyr-dashboard.webp", caption: "Garden Dashboard" },
+    ],
+  },
   {
     id: "lukk-boksen",
     title: "Lukk Boksen",

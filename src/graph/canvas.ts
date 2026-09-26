@@ -8,7 +8,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 // still match, so a stale save from a previous version would otherwise
 // keep "validating" and loading over whatever the current default should
 // be, even though nothing about the content changed.
-const STORAGE_KEY = "bjostad-graph-layout-v6";
+const STORAGE_KEY = "bjostad-graph-layout-v7";
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 // How long a skill's projects stay revealed after the pointer leaves its
 // row — long enough to travel from the row to one of those project cards.
@@ -124,8 +124,8 @@ export class GraphCanvas {
       // guarantees — a stored layout may include positions the user
       // dragged on top of each other on purpose, and that choice should
       // stick across reloads.
-      this.resolveOverlaps();
       this.ensureClearanceBelowYou();
+      this.resolveOverlaps();
     }
     for (const e of this.data.edges) {
       if (this.attributeOffset.has(e.from)) this.revealable.add(e.to);
@@ -228,8 +228,8 @@ export class GraphCanvas {
       const stored = this.loadPositions();
       this.positions = stored ?? computeInitialLayout(this.data);
       if (!stored) {
-        this.resolveOverlaps();
         this.ensureClearanceBelowYou();
+        this.resolveOverlaps();
       }
     }
     this.center();
@@ -396,6 +396,14 @@ export class GraphCanvas {
         this.nodeSize.set(id, { w: el.offsetWidth, h: el.offsetHeight });
       }
       this.measureAttributeOffsets();
+      // The first layout was spaced with fallback-font card sizes, which
+      // can push cards apart and close the gaps skill lines drop through.
+      // Nothing is stored until the user drags, so redo it with real sizes.
+      if (!this.loadPositions()) {
+        this.positions = computeInitialLayout(this.data);
+        this.ensureClearanceBelowYou();
+        this.resolveOverlaps();
+      }
     }
     this.center();
     this.render();
@@ -920,8 +928,8 @@ export class GraphCanvas {
   resetLayout() {
     if (this.mobile) return; // the phone column isn't draggable, so there's nothing to reset
     this.positions = computeInitialLayout(this.data);
-    this.resolveOverlaps();
     this.ensureClearanceBelowYou();
+    this.resolveOverlaps();
     sessionStorage.removeItem(STORAGE_KEY);
     if (!reducedMotion) {
       this.nodesLayer.classList.add("settling");
