@@ -1,4 +1,4 @@
-import type { GraphAttribute, GraphData, GraphEdge, GraphNode, Screenshot, SkillCategory } from "./types";
+import type { GraphAttribute, GraphData, GraphEdge, GraphLens, GraphNode, Screenshot, SkillCategory } from "./types";
 
 /**
  * ---------------------------------------------------------------------
@@ -80,6 +80,16 @@ const projects: ProjectSeed[] = [
   {
     id: "smartsherpa",
     title: "smartsherpa.ai",
+    subtitle: "Agentic AI for service businesses",
+    cardHighlights: ["Co-founder, led a team of 3", "SMS, voice, chat & Messenger agents", "40% less client admin work"],
+    summary:
+      "An autonomous agentic AI platform, which I co-founded and led as lead engineer (Oct 2023 – Jan 2026), handling 24/7 customer engagement and lead qualification for HVAC, plumbing, and electrical businesses.",
+    highlights: [
+      "Designed, architected, and deployed agents that engaged customers around the clock across SMS, voice, web chat, and Facebook Messenger.",
+      "Multi-channel conversational logic qualified inbound leads and automated intake and troubleshooting, reducing clients' administrative overhead by 40%.",
+      "Industry-specific onboarding templates and knowledge bases for electricians and plumbers cut new-client deployment time by over 50%.",
+      "Led a team of three engineers building on AWS (EC2, RDS, S3, Route 53, CloudFormation) with Java, Python, JavaScript, React, and LangChain.",
+    ],
     tags: ["TypeScript", "React", "Python", "Java", "Spring Boot", "Langchain", "NodeJS", "FastAPI", "Postgres"],
   },
   {
@@ -221,6 +231,14 @@ const you: GraphNode = {
   position: { x: 0, y: 0 },
 };
 
+/** The line under your name on your card (and in the list view) — what a
+ * recruiter screens for first. Empty a field to drop it from the line. */
+const status = {
+  availability: "Open to the right role",
+  location: "Seattle, WA",
+  workSetup: "Remote, hybrid, or on-site",
+};
+
 // Fill in later: real roles. Each can optionally list which project ids
 // were built during that role via `relatedProjectIds` below.
 interface ExperienceSeed {
@@ -253,6 +271,71 @@ const contact: GraphNode = {
   ],
   position: { x: 0.85, y: 0.7 },
 };
+
+/**
+ * The header's lens chips, one per kind of role. `projects` is your
+ * ranking for that role, strongest first; the top few are enough (the
+ * rest of the graph dims). `skills` are skill names as they appear in
+ * project tags; any that aren't shown on your card are ignored.
+ * Each lens has a shareable link: bjostad.dev/?lens=<id>.
+ */
+interface LensSeed {
+  id: string;
+  label: string;
+  blurb?: string;
+  skills: string[];
+  projects: string[];
+}
+
+const lenses: LensSeed[] = [
+  {
+    id: "frontend",
+    label: "Frontend",
+    blurb: "React + TypeScript apps, including canvas editors and data visualization.",
+    skills: ["TypeScript", "JavaScript", "React", "Konva", "Vite"],
+    projects: ["9t9-club", "freyr-farm", "escapistball"],
+  },
+  {
+    id: "backend",
+    label: "Backend",
+    blurb: "Java / Spring Boot and Node APIs over Postgres, deployed on GCP.",
+    skills: ["Java", "Spring Boot", "NodeJS", "Express", "FastAPI", "Postgres", "GCP"],
+    projects: ["freyr-farm", "staryteller", "gebo-ing"],
+  },
+  {
+    id: "ai",
+    label: "AI / LLM",
+    blurb: "LLM products, from an agentic AI startup to streamed story generation.",
+    skills: ["Python", "Langchain", "OpenAI", "Gemini", "FastAPI"],
+    projects: ["smartsherpa", "staryteller", "9t9-club"],
+  },
+  {
+    id: "mobile",
+    label: "Mobile",
+    blurb: "React Native and Flutter apps with GPU canvases, physics, and offline sync.",
+    skills: ["React Native", "Flutter", "Dart", "TypeScript", "Firebase"],
+    projects: ["staryteller", "lukk-boksen"],
+  },
+  {
+    id: "data",
+    label: "Data",
+    blurb: "Rating models, analytics dashboards, and physics-based forecasting.",
+    skills: ["Postgres", "Firebase", "Python", "Google Sheets API", "Google App Script"],
+    projects: ["escapistball", "9t9-club", "freyr-farm"],
+  },
+];
+
+function buildLenses(attributes: GraphAttribute[]): GraphLens[] {
+  const attrIds = new Set(attributes.map((a) => a.id));
+  const projectIds = new Set(projects.map((p) => p.id));
+  return lenses.map((l) => ({
+    id: l.id,
+    label: l.label,
+    blurb: l.blurb,
+    skills: l.skills.map((s) => `skill-${slug(s)}`).filter((id) => attrIds.has(id)),
+    projects: l.projects.filter((id) => projectIds.has(id)),
+  }));
+}
 
 /** Promotion rule: a skill becomes an attribute of "you" once it's used by
  * 2+ projects, or if it's in FEATURED_SKILLS. */
@@ -287,7 +370,10 @@ function slug(s: string): string {
 
 export function buildGraph(): GraphData {
   const { attributes, edges: attributeEdges } = buildAttributesAndEdges();
-  const nodes: GraphNode[] = [{ ...you, attributes }, contact];
+  const nodes: GraphNode[] = [
+    { ...you, attributes, status: [status.availability, status.location, status.workSetup].filter(Boolean) },
+    contact,
+  ];
   const edges: GraphEdge[] = [{ from: "you", to: "contact", kind: "related" }];
 
   for (const p of projects) {
@@ -338,5 +424,5 @@ export function buildGraph(): GraphData {
     }
   }
 
-  return { nodes, edges };
+  return { nodes, edges, lenses: buildLenses(attributes) };
 }

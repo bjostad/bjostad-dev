@@ -5,21 +5,38 @@ import { DetailPanel } from "./graph/panel";
 import { DetailSection } from "./graph/detailSection";
 import { renderListView } from "./graph/listview";
 import { initBackground } from "./background";
+import { searchFocus } from "./data/search";
+import type { Focus } from "./data/types";
 
 const bgCanvas = document.querySelector<HTMLCanvasElement>("#bg-canvas")!;
 initBackground(bgCanvas);
 
 const data = buildGraph();
+const resumeUrl = data.nodes.find((n) => n.type === "contact")?.links?.find((l) => /resume/i.test(l.label))?.url;
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <div class="graph-screen">
     <header class="site-header">
       <span class="brand">bjostad.dev</span>
+      <nav class="lens-bar" aria-label="Highlight projects by role">
+        <div class="lens-chips">
+          <button type="button" class="lens-chip" data-lens="" aria-pressed="true">All</button>
+          ${data.lenses
+            .map((l) => `<button type="button" class="lens-chip" data-lens="${l.id}" aria-pressed="false">${l.label}</button>`)
+            .join("")}
+        </div>
+        <select class="lens-select" aria-label="Highlight projects by role">
+          <option value="">All projects</option>
+          ${data.lenses.map((l) => `<option value="${l.id}">${l.label}</option>`).join("")}
+        </select>
+        <input type="search" class="lens-search" placeholder="Search a skill…" aria-label="Search skills and projects" spellcheck="false" />
+      </nav>
       <div class="header-controls">
-        <button type="button" class="btn" id="reset-layout">Reset layout</button>
+        ${resumeUrl ? `<a class="btn" href="${resumeUrl}" target="_blank" rel="noopener">Resume</a>` : ""}
         <button type="button" class="btn" id="toggle-view" aria-pressed="false">List view</button>
       </div>
+      <p class="focus-caption" aria-live="polite" hidden></p>
     </header>
     <main id="canvas-container" class="canvas-container"></main>
     <div id="list-container" class="list-container" hidden></div>
@@ -31,7 +48,6 @@ app.innerHTML = `
 const canvasContainer = document.querySelector<HTMLElement>("#canvas-container")!;
 const listContainer = document.querySelector<HTMLElement>("#list-container")!;
 const toggleBtn = document.querySelector<HTMLButtonElement>("#toggle-view")!;
-const resetBtn = document.querySelector<HTMLButtonElement>("#reset-layout")!;
 
 const panel = new DetailPanel(document.body);
 const detailSection = new DetailSection(
@@ -45,7 +61,22 @@ const canvas = new GraphCanvas(canvasContainer, data, (node) => {
 canvas.onRender = () => detailSection.refresh();
 renderListView(listContainer, data);
 
-resetBtn.addEventListener("click", () => canvas.resetLayout());
+// Sits in the canvas's top-right corner and only appears once a card has
+// been dragged out of the default arrangement.
+const resetBtn = document.createElement("button");
+resetBtn.type = "button";
+resetBtn.className = "btn reset-layout";
+resetBtn.textContent = "Reset layout";
+resetBtn.hidden = !canvas.hasCustomLayout;
+canvasContainer.appendChild(resetBtn);
+resetBtn.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+resetBtn.addEventListener("click", (ev) => {
+  ev.stopPropagation();
+  canvas.resetLayout();
+});
+canvas.onLayoutChange = (custom) => {
+  resetBtn.hidden = !custom;
+};
 
 let showingList = false;
 toggleBtn.addEventListener("click", () => {
@@ -54,6 +85,91 @@ toggleBtn.addEventListener("click", () => {
   listContainer.hidden = !showingList;
   toggleBtn.setAttribute("aria-pressed", String(showingList));
   toggleBtn.textContent = showingList ? "Graph view" : "List view";
-  resetBtn.hidden = showingList;
   detailSection.refresh();
 });
+
+// Lens chips and search share one focus: picking a lens clears the search
+// and typing clears the lens. Both are kept in the URL (?lens=backend,
+// ?q=postgres) so a link can open straight into the view for a role.
+const lensChips = [...document.querySelectorAll<HTMLButtonElement>(".lens-chip")];
+const lensBar = document.querySelector<HTMLElement>(".lens-bar")!;
+const lensChipRow = document.querySelector<HTMLElement>(".lens-chips")!;
+const lensSelect = document.querySelector<HTMLSelectElement>(".lens-select")!;
+const searchInput = document.querySelector<HTMLInputElement>(".lens-search")!;
+const caption = document.querySelector<HTMLElement>(".focus-caption")!;
+const params = new URLSearchParams(location.search);
+let lensId = data.lenses.some((l) => l.id === params.get("lens")) ? params.get("lens")! : "";
+searchInput.value = params.get("q") ?? "";
+if (searchInput.value) lensId = "";
+
+function applyFocus() {
+  const query = searchInput.value.trim();
+  const lens = data.lenses.find((l) => l.id === lensId);
+  let focus: Focus | null = null;
+  let captionHtml = "";
+  if (query) {
+    focus = searchFocus(data, query);
+    if (focus) {
+      const n = focus.projects.length;
+      captionHtml = n
+        ? `<strong>“${esc(query)}”</strong> ${n} project${n === 1 ? "" : "s"}`
+        : `<strong>“${esc(query)}”</strong> No matches. Try another skill`;
+    }
+  } else if (lens) {
+    focus = { label: lens.label, projects: lens.projects, skills: lens.skills, ranked: true };
+  }
+
+  canvas.setFocus(focus);
+  renderListView(listContainer, data, focus);
+  caption.innerHTML = captionHtml;
+  caption.hidden = !captionHtml;
+  for (const chip of lensChips) {
+    chip.setAttribute("aria-pressed", String(!query && chip.dataset.lens === lensId));
+  }
+  lensSelect.value = query ? "" : lensId;
+
+  const url = new URL(location.href);
+  url.searchParams.delete("lens");
+  url.searchParams.delete("q");
+  if (query) url.searchParams.set("q", query);
+  else if (lensId) url.searchParams.set("lens", lensId);
+  history.replaceState(null, "", url);
+}
+
+for (const chip of lensChips) {
+  chip.addEventListener("click", () => {
+    lensId = chip.dataset.lens ?? "";
+    searchInput.value = "";
+    applyFocus();
+  });
+}
+lensSelect.addEventListener("change", () => {
+  lensId = lensSelect.value;
+  searchInput.value = "";
+  applyFocus();
+});
+searchInput.addEventListener("input", () => {
+  lensId = "";
+  applyFocus();
+});
+searchInput.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") {
+    searchInput.value = "";
+    applyFocus();
+  }
+});
+applyFocus();
+
+// The chips swap for a dropdown whenever the header is too narrow to show
+// them all in one line. Measured with the chips showing, since that's the
+// only way to know whether they'd fit.
+function fitLensBar() {
+  lensBar.classList.remove("collapsed");
+  lensBar.classList.toggle("collapsed", lensChipRow.scrollWidth > lensChipRow.clientWidth);
+}
+new ResizeObserver(fitLensBar).observe(document.querySelector(".site-header")!);
+document.fonts?.ready.then(fitLensBar);
+
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}

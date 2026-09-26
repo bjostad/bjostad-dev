@@ -202,7 +202,8 @@ function renderProject(node: GraphNode): string {
     .map((l) => `<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`)
     .join("");
 
-  let media: string;
+  // No demo or screenshots: no media area at all, rather than an empty frame.
+  let media = "";
   if (node.demoUrl) {
     media = `
       <div class="media-frame">
@@ -215,8 +216,6 @@ function renderProject(node: GraphNode): string {
       </div>`;
   } else if (node.screenshots?.length) {
     media = renderScreenshots(node);
-  } else {
-    media = `<div class="media-frame media-placeholder"><span>Screenshot coming soon</span></div>`;
   }
 
   const highlights = node.highlights?.length
@@ -228,7 +227,7 @@ function renderProject(node: GraphNode): string {
       : `<p class="detail-lede">A full write-up for this project is coming soon.</p>`;
 
   const glance = node.cardHighlights?.length
-    ? `<h3>Key skills</h3><ul class="node-highlights">${node.cardHighlights.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>`
+    ? `<h3>At a glance</h3><ul class="node-highlights">${node.cardHighlights.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>`
     : "";
   const stack = node.tags?.length
     ? `<h3>Stack</h3><div class="detail-tags">${node.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>`

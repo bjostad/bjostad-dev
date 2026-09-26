@@ -1,18 +1,24 @@
-import type { GraphData } from "../data/types";
+import type { Focus, GraphData } from "../data/types";
+import { statusLineHtml } from "./canvas";
 
-export function renderListView(root: HTMLElement, data: GraphData) {
+/** With a focus, its projects move to the top in its order, marked, and
+ * the rest follow in their usual order. */
+export function renderListView(root: HTMLElement, data: GraphData, focus: Focus | null = null) {
   const you = data.nodes.find((n) => n.type === "you");
-  const projects = data.nodes.filter((n) => n.type === "project");
+  const rank = new Map((focus?.projects ?? []).map((id, i) => [id, i]));
+  const projects = data.nodes
+    .filter((n) => n.type === "project")
+    .sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
   const experience = data.nodes.filter((n) => n.type === "experience");
   const contact = data.nodes.find((n) => n.type === "contact");
 
   root.innerHTML = "";
-  root.className = "list-view";
+  root.classList.add("list-view");
 
   if (you) {
     const header = document.createElement("header");
     header.className = "list-you";
-    header.innerHTML = `<h1>${esc(you.title)}</h1>${you.subtitle ? `<p>${esc(you.subtitle)}</p>` : ""}${
+    header.innerHTML = `<h1>${esc(you.title)}</h1>${statusLineHtml(you.status, esc)}${you.subtitle ? `<p>${esc(you.subtitle)}</p>` : ""}${
       you.summary ? `<p>${esc(you.summary)}</p>` : ""
     }`;
     root.appendChild(header);
@@ -28,7 +34,8 @@ export function renderListView(root: HTMLElement, data: GraphData) {
 
   if (projects.length) {
     root.appendChild(section("Projects", projects.map((p) => `
-      <li>
+      <li${focus && !rank.has(p.id) ? ` class="list-muted"` : ""}>
+        ${focus && rank.has(p.id) ? `<span class="list-rank">${focus.ranked ? `#${rank.get(p.id)! + 1} ` : ""}${esc(focus.label)}</span>` : ""}
         <strong>${esc(p.title)}</strong>${p.subtitle ? ` — ${esc(p.subtitle)}` : ""}
         ${p.summary ? `<p>${esc(p.summary)}</p>` : ""}
         ${p.highlights?.length ? `<ul class="list-highlights">${p.highlights.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>` : ""}

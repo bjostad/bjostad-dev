@@ -91,10 +91,135 @@ body {
   color: var(--text-primary);
 }
 
+.brand,
+.header-controls,
+.lens-search {
+  flex: none;
+}
+
 .header-controls {
   display: flex;
   gap: 8px;
 }
+
+/* Lens chips + search (main.ts). The bar takes whatever room the brand
+   and buttons leave; when the chips don't fit in it, main.ts adds
+   .collapsed and they're replaced by a dropdown. */
+.lens-bar {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 24px;
+  min-width: 0;
+}
+
+.lens-chips {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.lens-select {
+  display: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--bg-base);
+  background: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+  border-radius: 999px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.lens-select:focus-visible {
+  outline: 1px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.lens-select option {
+  color: var(--text-primary);
+  background: var(--bg-panel);
+}
+
+.lens-bar.collapsed .lens-chips {
+  display: none;
+}
+
+.lens-bar.collapsed .lens-select {
+  display: block;
+}
+
+.lens-chip {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--line-edge);
+  border-radius: 999px;
+  padding: 5px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.lens-chip:hover,
+.lens-chip:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+  outline: none;
+}
+
+.lens-chip[aria-pressed="true"] {
+  color: var(--bg-base);
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.lens-search {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-panel);
+  border: 1px solid var(--line-edge);
+  border-radius: 999px;
+  padding: 5px 12px;
+  width: 170px;
+  margin-left: 6px;
+  transition: border-color 0.15s ease;
+}
+
+.lens-search::placeholder {
+  color: var(--text-muted);
+}
+
+.lens-search:focus-visible {
+  border-color: var(--accent-primary);
+  outline: none;
+}
+
+/* Hangs just below the header so showing it never shifts the graph. */
+.focus-caption {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 24px;
+  right: 24px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+  animation: reset-layout-in 0.2s ease-out;
+}
+
+.focus-caption strong {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--accent-secondary);
+  margin-right: 6px;
+}
+
 
 .btn {
   font-family: var(--font-sans);
@@ -365,22 +490,16 @@ a.btn {
   text-decoration: none;
 }
 
-.media-placeholder {
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-muted);
-  background:
-    repeating-linear-gradient(45deg, transparent 0 12px, rgba(46, 67, 104, 0.18) 12px 13px),
-    var(--bg-panel);
-}
-
 .detail-body {
   display: grid;
   grid-template-columns: 2fr 1fr;
   gap: 40px;
   margin-top: 32px;
+}
+
+/* A project with no media: the header's own margin is gap enough. */
+.detail-head + .detail-body {
+  margin-top: 0;
 }
 
 .detail-body h3 {
@@ -433,6 +552,21 @@ a.btn {
   flex: 1;
   position: relative;
   overflow: hidden;
+}
+
+.reset-layout {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 5;
+  animation: reset-layout-in 0.2s ease-out;
+}
+
+@keyframes reset-layout-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
 
 .viewport {
@@ -549,6 +683,27 @@ a.btn {
   z-index: 10;
 }
 
+/* A lens's or search's projects: lit border, and for a lens, the rank
+   ("#1 Backend") as a tab hanging off the top edge. */
+.node.focus-hit {
+  border-color: var(--accent-primary);
+}
+
+.node[data-rank]::after {
+  content: attr(data-rank);
+  position: absolute;
+  top: -9px;
+  right: 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 2px;
+  color: var(--bg-base);
+  background: var(--accent-primary);
+  white-space: nowrap;
+}
+
 /* Dimmed cards stay opaque — only their contents and border fade — so the
    dot grid and any lines behind them never show through. */
 .node.dim {
@@ -662,6 +817,33 @@ a.btn {
 
 .node-you .node-title {
   font-size: 22px;
+}
+
+/* Availability under the name, on "you"'s card and atop the list view.
+   The dot is centered on the first line so a wrapped line hangs clear of it. */
+.status-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #aab6ca;
+}
+
+.status-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: calc(0.725em - 3px);
+  border-radius: 50%;
+  background: var(--accent-secondary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-secondary) 20%, transparent);
+}
+
+.list-you .status-line {
+  margin: 4px 0 8px;
+  font-size: 13px;
 }
 
 .you-pitch {
@@ -1023,6 +1205,21 @@ a.btn {
   margin: 4px 0;
 }
 
+.list-container li.list-muted {
+  opacity: 0.55;
+}
+
+.list-rank {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 0 6px;
+  margin-right: 8px;
+  border-radius: 2px;
+  color: var(--bg-base);
+  background: var(--accent-primary);
+}
+
 .list-tags {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1053,6 +1250,32 @@ a.btn {
 @media (max-width: 640px) {
   .site-header {
     padding: 12px 16px;
+  }
+
+  /* Brand and buttons fill the first row; lenses and search get their own. */
+  .site-header {
+    flex-wrap: wrap;
+    row-gap: 12px;
+  }
+
+
+  .lens-bar {
+    order: 3;
+    flex-basis: 100%;
+    justify-content: flex-start;
+    margin: 0;
+  }
+
+  .lens-search {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* No room to hang it over the column of cards; it takes its own row. */
+  .focus-caption {
+    position: static;
+    order: 4;
+    flex-basis: 100%;
   }
 
   .project-detail {
@@ -1098,7 +1321,7 @@ a.btn {
     flex: none;
   }
 
-  #reset-layout {
+  .reset-layout {
     display: none;
   }
 

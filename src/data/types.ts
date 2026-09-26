@@ -47,6 +47,8 @@ export interface GraphNode {
   tags?: string[];
   category?: SkillCategory;
   photo?: string;
+  /** "you" node only: availability, location, etc., shown under the name. */
+  status?: string[];
   /** "you" node only — see GraphAttribute. */
   attributes?: GraphAttribute[];
   /** Default layout hint, roughly -1..1 on each axis; canvas scales to viewport. */
@@ -59,7 +61,35 @@ export interface GraphEdge {
   kind: EdgeKind;
 }
 
+/**
+ * A hand-picked view of the graph for one kind of role (frontend,
+ * backend, …): the header's lens chips light up these projects, in rank
+ * order, and these skill attributes on "you"'s card.
+ */
+export interface GraphLens {
+  id: string;
+  label: string;
+  blurb?: string;
+  /** Attribute ids (skill-…), in the order they should be read. */
+  skills: string[];
+  /** Project ids, strongest first. */
+  projects: string[];
+}
+
+/**
+ * What the canvas and list view highlight while nothing is hovered or
+ * pinned: a lens, or the results of a skill search. Ranked focuses number
+ * their projects on the cards; search results are unranked.
+ */
+export interface Focus {
+  label: string;
+  projects: string[];
+  skills: string[];
+  ranked: boolean;
+}
+
 export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  lenses: GraphLens[];
 }

@@ -1,4 +1,4 @@
-import type { GraphData, GraphNode, SkillCategory } from "../data/types";
+import type { Focus, GraphData, GraphNode, SkillCategory } from "../data/types";
 import { computeInitialLayout, reduceAttributeProjectCrossings, type LayoutNode } from "./layout";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -70,6 +70,8 @@ export class GraphCanvas {
   private onExpand: (node: GraphNode) => void;
   private hoverId: string | null = null;
   private pinnedId: string | null = null;
+  /** A lens or search result, shown whenever nothing is hovered or pinned. */
+  private focus: { projects: Map<string, number>; skills: Set<string>; label: string; ranked: boolean } | null = null;
   private clearTimer: number | undefined;
   /** Projects reachable through a skill attribute — dim until one of their skills is picked. */
   private revealable = new Set<string>();
@@ -235,6 +237,7 @@ export class GraphCanvas {
     this.center();
     this.render();
     this.applyHighlight();
+    this.onLayoutChange?.(this.hasCustomLayout);
   }
 
   /** Scales (never up) and centers the whole graph. If even
@@ -436,6 +439,7 @@ export class GraphCanvas {
           ${photo}
           <div class="you-overlay">
             <div class="node-title">${escapeHtml(node.title)}</div>
+            ${statusLineHtml(node.status, escapeHtml)}
             ${node.summary ? `<p class="you-pitch">${escapeHtml(node.summary)}</p>` : ""}
           </div>
         </div>
@@ -519,7 +523,11 @@ export class GraphCanvas {
       el.classList.remove("dragging");
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);
-      this.savePositions();
+      // A press without movement is a click, not a rearrangement.
+      if (this.suppressClick) {
+        this.savePositions();
+        this.onLayoutChange?.(true);
+      }
     };
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerup", up);
@@ -563,6 +571,8 @@ export class GraphCanvas {
    */
   private applyHighlight() {
     const activeId = this.hoverId ?? this.pinnedId;
+    // Hovering or pinning something takes over; the focus comes back once it's let go.
+    const focus = activeId === null ? this.focus : null;
     const litProjects = new Set<string>();
     const litSkills = new Set<string>();
     for (const e of this.data.edges) {
@@ -597,7 +607,15 @@ export class GraphCanvas {
 
     for (const [nid, el] of this.nodeEls) {
       const lit = nid === activeId || litProjects.has(nid);
-      const dim = this.revealable.has(nid) ? !lit : activeId !== null && nid !== "you";
+      const rank = focus?.projects.get(nid);
+      const dim = focus
+        ? this.revealable.has(nid) && rank === undefined
+        : this.revealable.has(nid)
+          ? !lit
+          : activeId !== null && nid !== "you";
+      el.classList.toggle("focus-hit", rank !== undefined);
+      if (rank !== undefined && focus?.ranked) el.dataset.rank = `#${rank + 1} ${focus.label}`;
+      else delete el.dataset.rank;
       const wasDim = el.classList.contains("dim");
       if (dim || nid === activeId) {
         el.style.removeProperty("--reveal-delay");
@@ -608,9 +626,24 @@ export class GraphCanvas {
       el.classList.toggle("dim", dim);
     }
     for (const [aid, el] of this.attributeEls) {
-      el.classList.toggle("dim", activeId !== null && !litSkills.has(aid));
-      el.classList.toggle("active-attr", litSkills.has(aid));
+      const on = focus ? focus.skills.has(aid) : litSkills.has(aid);
+      el.classList.toggle("dim", (activeId !== null || focus !== null) && !on);
+      el.classList.toggle("active-attr", on);
     }
+  }
+
+  /** Lights up a lens's or search's projects and skills (null clears it).
+   * Replaces any pinned highlight, since picking a lens is the newer choice. */
+  setFocus(focus: Focus | null) {
+    this.focus = focus && {
+      projects: new Map(focus.projects.map((id, i) => [id, i])),
+      skills: new Set(focus.skills),
+      label: focus.label,
+      ranked: focus.ranked,
+    };
+    this.pinnedId = null;
+    if (focus) this.dismissCoach();
+    this.applyHighlight();
   }
 
   /** Animates a line drawing itself from its start; returns how long that takes. */
@@ -641,6 +674,13 @@ export class GraphCanvas {
   /** Called after every layout change, for anything outside the canvas
    * that's anchored to a card's on-screen position. */
   onRender: (() => void) | null = null;
+  /** Called when the user drags a card (true) or resets the layout (false). */
+  onLayoutChange: ((custom: boolean) => void) | null = null;
+
+  /** Whether the diagram shows a user-arranged layout rather than the default. */
+  get hasCustomLayout(): boolean {
+    return !this.mobile && this.loadPositions() !== null;
+  }
 
   private render() {
     for (const [id, el] of this.nodeEls) {
@@ -937,6 +977,7 @@ export class GraphCanvas {
     }
     this.center();
     this.render();
+    this.onLayoutChange?.(false);
   }
 
   /**
@@ -1063,6 +1104,12 @@ function crowsFoot(x: number, y: number, awayX: number, awayY: number): string {
   const t2x = x - px * FORK_SPREAD;
   const t2y = y - py * FORK_SPREAD;
   return ` M ${t1x} ${t1y} L ${cx} ${cy} M ${x} ${y} L ${cx} ${cy} M ${t2x} ${t2y} L ${cx} ${cy}`;
+}
+
+/** "● Open to the right role · Seattle, WA · …" under "you"'s name — shared with the list view. */
+export function statusLineHtml(status: string[] | undefined, esc: (s: string) => string): string {
+  if (!status?.length) return "";
+  return `<p class="status-line"><span class="status-dot" aria-hidden="true"></span><span>${status.map(esc).join(" · ")}</span></p>`;
 }
 
 function escapeHtml(s: string): string {
