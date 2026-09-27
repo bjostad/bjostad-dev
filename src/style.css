@@ -84,11 +84,37 @@ body {
   z-index: 20;
 }
 
+/* The favicon's tile beside the wordmark, with ".dev" in the tile's
+   connector blue, so the tab icon and the header read as one mark. */
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   font-family: var(--font-mono);
   font-size: 15px;
   letter-spacing: 0.02em;
   color: var(--text-primary);
+  text-decoration: none;
+}
+
+.brand-mark {
+  display: block;
+  border: 1px solid var(--line-edge);
+  border-radius: 4px;
+  transition: border-color 0.15s ease;
+}
+
+.brand-tld {
+  color: var(--accent-primary);
+}
+
+.brand:hover .brand-mark,
+.brand:focus-visible .brand-mark {
+  border-color: var(--accent-primary);
+}
+
+.brand:focus-visible {
+  outline: none;
 }
 
 .brand,

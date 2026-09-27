@@ -18,7 +18,10 @@ const app = document.querySelector<HTMLDivElement>("#app")!;
 app.innerHTML = `
   <div class="graph-screen">
     <header class="site-header">
-      <span class="brand">bjostad.dev</span>
+      <a class="brand" href="/" aria-label="bjostad.dev, back to the start">
+        <img class="brand-mark" src="/favicon.svg" alt="" width="26" height="26" />
+        <span>bjostad<span class="brand-tld">.dev</span></span>
+      </a>
       <nav class="lens-bar" aria-label="Highlight projects by role">
         <div class="lens-chips">
           <button type="button" class="lens-chip" data-lens="" aria-pressed="true">All</button>
@@ -102,9 +105,17 @@ let lensId = data.lenses.some((l) => l.id === params.get("lens")) ? params.get("
 searchInput.value = params.get("q") ?? "";
 if (searchInput.value) lensId = "";
 
+function lensFocus(id: string): Focus | null {
+  const lens = data.lenses.find((l) => l.id === id);
+  return lens ? { label: lens.label, projects: lens.projects, skills: lens.skills, ranked: true } : null;
+}
+
+/** What the page shows when no chip is being previewed: the clicked lens or the search. */
+let committedFocus: Focus | null = null;
+
 function applyFocus() {
+  cancelPreview();
   const query = searchInput.value.trim();
-  const lens = data.lenses.find((l) => l.id === lensId);
   let focus: Focus | null = null;
   let captionHtml = "";
   if (query) {
@@ -115,10 +126,11 @@ function applyFocus() {
         ? `<strong>“${esc(query)}”</strong> ${n} project${n === 1 ? "" : "s"}`
         : `<strong>“${esc(query)}”</strong> No matches. Try another skill`;
     }
-  } else if (lens) {
-    focus = { label: lens.label, projects: lens.projects, skills: lens.skills, ranked: true };
+  } else {
+    focus = lensFocus(lensId);
   }
 
+  committedFocus = focus;
   canvas.setFocus(focus);
   renderListView(listContainer, data, focus);
   caption.innerHTML = captionHtml;
@@ -136,7 +148,34 @@ function applyFocus() {
   history.replaceState(null, "", url);
 }
 
+// With a mouse, resting on a chip previews its lens on the graph; leaving
+// the chip row puts back whatever was clicked. The short delay keeps the
+// graph from flashing through every lens as the pointer crosses the row.
+// A preview never touches the URL, the pressed chip, or the list view.
+const canHover = window.matchMedia("(hover: hover) and (pointer: fine)");
+const PREVIEW_DELAY_MS = 120;
+let previewTimer: number | undefined;
+let previewing = false;
+
+function cancelPreview() {
+  window.clearTimeout(previewTimer);
+  if (previewing) {
+    previewing = false;
+    canvas.setFocus(committedFocus);
+  }
+}
+
+lensChipRow.addEventListener("mouseleave", cancelPreview);
+
 for (const chip of lensChips) {
+  chip.addEventListener("mouseenter", () => {
+    if (!canHover.matches) return;
+    window.clearTimeout(previewTimer);
+    previewTimer = window.setTimeout(() => {
+      previewing = true;
+      canvas.setFocus(lensFocus(chip.dataset.lens ?? ""));
+    }, PREVIEW_DELAY_MS);
+  });
   chip.addEventListener("click", () => {
     lensId = chip.dataset.lens ?? "";
     searchInput.value = "";
