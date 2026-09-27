@@ -1,0 +1,12 @@
+// Cloudflare Workers deploy config: serves the Vite build as static assets,
+// no Worker script. Cloudflare runs `npm run build`, then `npx wrangler deploy`.
+{
+  "name": "bjostad-dev",
+  "compatibility_date": "2026-09-26",
+  "assets": {
+    "directory": "./dist",
+    // Missing files (e.g. the resume PDF while it's offline) get
+    // public/404.html with a 404 status, not index.html.
+    "not_found_handling": "404-page"
+  }
+}
