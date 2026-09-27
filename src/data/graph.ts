@@ -81,7 +81,7 @@ const projects: ProjectSeed[] = [
     id: "smartsherpa",
     title: "smartsherpa.ai",
     subtitle: "Agentic AI for service businesses",
-    cardHighlights: ["Co-founder, led a team of 3", "SMS, voice, chat & Messenger agents", "40% less client admin work"],
+    cardHighlights: ["Co-founder, led a team of 3", "Multi-channel AI agents", "40% less client admin work"],
     summary:
       "An autonomous agentic AI platform, which I co-founded and led as lead engineer (Oct 2023 – Jan 2026), handling 24/7 customer engagement and lead qualification for HVAC, plumbing, and electrical businesses.",
     highlights: [

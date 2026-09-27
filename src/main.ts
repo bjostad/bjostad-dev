@@ -36,7 +36,11 @@ app.innerHTML = `
         <input type="search" class="lens-search" placeholder="Search a skill…" aria-label="Search skills and projects" spellcheck="false" />
       </nav>
       <div class="header-controls">
-        ${resumeUrl ? `<a class="btn" href="${resumeUrl}" target="_blank" rel="noopener">Resume</a>` : ""}
+        ${resumeUrl
+          ? `<a class="btn btn-doc" href="${resumeUrl}" target="_blank" rel="noopener" aria-label="Résumé (PDF, opens in a new tab)">
+              <svg class="btn-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.5h5.5L13 5v9.5H4z M9.5 1.5V5H13 M6.5 8.5h4 M6.5 11h4" /></svg>Résumé
+            </a>`
+          : ""}
         <button type="button" class="btn" id="toggle-view" aria-pressed="false">List view</button>
       </div>
       <p class="focus-caption" aria-live="polite" hidden></p>

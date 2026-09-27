@@ -2,10 +2,7 @@ import type { GraphNode } from "../data/types";
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const DURATION_MS = 1000;
-// Match the cardinality marks drawn inside the graph (canvas.ts).
-const TICK_LEN = 9;
-const FORK_LEN = 12;
-const FORK_SPREAD = 6;
+const SVG_NS = "http://www.w3.org/2000/svg";
 // Shared by the scroll and the line draw so the line reaches the section
 // exactly as the section arrives.
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
@@ -15,14 +12,17 @@ const EASE_CSS = "cubic-bezier(0.65, 0, 0.35, 1)";
  * Full-screen section below the graph for a project or for contact info.
  * Opening one scrolls down to it while a line draws from the clicked
  * card into the section's header, so the section reads as another
- * entity hanging off the diagram rather than a separate page. A project
- * is one-to-one with its section (a tick at each end, blue); contact is
- * drawn many-to-many (a crow's foot at each end, green).
+ * entity hanging off the diagram rather than a separate page. The section
+ * is drawn as a UML note (a folded corner, style.css) and the line as its
+ * dashed note anchor (blue for a project, green for contact).
  */
 export class DetailSection {
   private section: HTMLElement;
   private svg: SVGSVGElement;
   private path: SVGPathElement;
+  /** Solid copy of the dashed connector, used as its mask: the draw-in
+   * animates this, since a dash pattern can't also run the draw-in. */
+  private reveal: SVGPathElement;
   private node: GraphNode | null = null;
   private scrollFrame = 0;
   private state: "closed" | "opening" | "open" | "closing" = "closed";
@@ -34,6 +34,20 @@ export class DetailSection {
     this.section = section;
     this.svg = svg;
     this.path = svg.querySelector("path")!;
+    const defs = document.createElementNS(SVG_NS, "defs");
+    const mask = document.createElementNS(SVG_NS, "mask");
+    mask.id = "page-link-reveal";
+    mask.setAttribute("maskUnits", "userSpaceOnUse");
+    mask.setAttribute("x", "0");
+    mask.setAttribute("y", "0");
+    mask.setAttribute("width", "100000");
+    mask.setAttribute("height", "100000");
+    this.reveal = document.createElementNS(SVG_NS, "path");
+    this.reveal.setAttribute("class", "page-link-reveal");
+    mask.appendChild(this.reveal);
+    defs.appendChild(mask);
+    svg.prepend(defs);
+    this.path.setAttribute("mask", `url(#${mask.id})`);
     // Any manual scroll input takes over from the automatic one.
     for (const type of ["wheel", "touchstart", "keydown"]) {
       window.addEventListener(type, () => cancelAnimationFrame(this.scrollFrame), { passive: true });
@@ -88,7 +102,7 @@ export class DetailSection {
     this.state = "closing";
     this.animateLine(true);
     const finish = () => {
-      this.path.getAnimations().forEach((a) => a.cancel());
+      this.reveal.getAnimations().forEach((a) => a.cancel());
       this.section.hidden = true;
       this.section.innerHTML = "";
       this.node = null;
@@ -101,20 +115,26 @@ export class DetailSection {
 
   /** Draws the line out from the card, or (retract) back into it. */
   private animateLine(retract: boolean) {
-    this.path.getAnimations().forEach((a) => a.cancel());
+    const el = this.reveal;
+    el.getAnimations().forEach((a) => a.cancel());
     if (reducedMotion) return;
-    const len = this.path.getTotalLength();
-    this.path.style.strokeDasharray = `${len} ${len}`;
+    const len = el.getTotalLength();
+    el.style.strokeDasharray = `${len} ${len}`;
     const frames = [{ strokeDashoffset: len }, { strokeDashoffset: 0 }];
-    const anim = this.path.animate(retract ? frames.reverse() : frames, {
+    const anim = el.animate(retract ? frames.reverse() : frames, {
       duration: DURATION_MS,
       easing: EASE_CSS,
       fill: retract ? "forwards" : "none",
     });
     anim.onfinish = () => {
-      if (!retract) this.path.style.strokeDasharray = "";
+      if (!retract) el.style.strokeDasharray = "";
     };
-    anim.oncancel = () => (this.path.style.strokeDasharray = "");
+    anim.oncancel = () => (el.style.strokeDasharray = "");
+  }
+
+  private setPath(d: string) {
+    this.path.setAttribute("d", d);
+    this.reveal.setAttribute("d", d);
   }
 
   /** Re-anchors the connector to the card's current on-screen position. */
@@ -123,7 +143,7 @@ export class DetailSection {
     const port = this.section.querySelector<HTMLElement>(".detail-port");
     const c = card?.getBoundingClientRect();
     if (!c || !port || this.section.hidden || !c.width) {
-      this.path.setAttribute("d", "");
+      this.setPath("");
       this.svg.style.height = "0"; // otherwise its old page-tall height keeps the page scrollable
       return;
     }
@@ -132,22 +152,30 @@ export class DetailSection {
     const sx = window.scrollX;
     const sy = window.scrollY;
 
+    // The anchor ends on the note's top edge, above the header's port.
+    const note = this.section.querySelector<HTMLElement>(".detail-inner")!.getBoundingClientRect();
+    const x2 = p.left + p.width / 2 + sx;
+    const y2 = note.top + sy;
+    const runY = s.top + sy + 24;
+    const isContact = this.node!.type === "contact";
+    this.svg.style.height = `${document.documentElement.scrollHeight}px`;
+
+    // Drawn from the card, so the draw-in travels from it and the retract
+    // ends back at it.
+    if (!isContact && card!.closest(".side-layout")) {
+      // Side layout: the grid packs cards above and below each other, so
+      // leave from the right edge and turn down in the clear space beside
+      // the card (the gap to its neighbor, or open canvas past the grid).
+      const x1 = c.right + sx;
+      const y1 = c.top + c.height / 2 + sy;
+      const turnX = clearRightOf(card!, c) + sx;
+      this.setPath(`M ${x1} ${y1} L ${turnX} ${y1} L ${turnX} ${runY} L ${x2} ${runY} L ${x2} ${y2}`);
+      return;
+    }
+
     const x1 = c.left + c.width / 2 + sx;
     const y1 = c.bottom + sy;
-    const x2 = p.left + p.width / 2 + sx;
-    const y2 = p.top + sy;
-    const runY = s.top + sy + 24;
-
-    // Subpaths in drawing order (start mark, line, end mark), so the
-    // draw-in travels from the card and the retract ends back at it.
-    const many = this.node!.type === "contact";
-    this.svg.style.height = `${document.documentElement.scrollHeight}px`;
-    this.path.setAttribute(
-      "d",
-      (many ? crowsFoot(x1, y1, 1) : tick(x1, y1 + TICK_LEN * 0.7)) +
-        ` M ${x1} ${y1} L ${x1} ${runY} L ${x2} ${runY} L ${x2} ${y2}` +
-        (many ? crowsFoot(x2, y2, -1) : tick(x2, y2 - TICK_LEN * 0.7)),
-    );
+    this.setPath(`M ${x1} ${y1} L ${x1} ${runY} L ${x2} ${runY} L ${x2} ${y2}`);
   }
 
   private scrollTo(top: number, done?: () => void) {
@@ -170,17 +198,29 @@ export class DetailSection {
   }
 }
 
-/** "One" mark: a short bar across a vertical line. */
-function tick(x: number, y: number): string {
-  return ` M ${x - TICK_LEN / 2} ${y} L ${x + TICK_LEN / 2} ${y}`;
+
+/** Viewport x to turn down at after leaving a card's right edge: midway to
+ * the nearest card beside it in its row, or, when nothing is there, a
+ * fixed step past the right edge of this card and every card below it in
+ * its column (a wider card below a narrower one). */
+function clearRightOf(card: HTMLElement, c: DOMRect): number {
+  const others = [...document.querySelectorAll<HTMLElement>(".node")]
+    .filter((o) => o !== card)
+    .map((o) => o.getBoundingClientRect());
+  let nearest = Infinity;
+  for (const o of others) {
+    if (o.left >= c.right && o.top < c.bottom && o.bottom > c.top) nearest = Math.min(nearest, o.left);
+  }
+  if (nearest !== Infinity) return (c.right + nearest) / 2;
+  let edge = c.right;
+  for (const o of others) {
+    if (o.top >= c.bottom && o.left < c.right && o.right > c.left) edge = Math.max(edge, o.right);
+  }
+  return edge + 28;
 }
 
 /** "Many" mark on a vertical line: three feet planted on the box edge at
  * `y`, converging `dir` (+1 down, -1 up) away from the box. */
-function crowsFoot(x: number, y: number, dir: 1 | -1): string {
-  const cy = y + dir * FORK_LEN;
-  return ` M ${x - FORK_SPREAD} ${y} L ${x} ${cy} M ${x} ${y} L ${x} ${cy} M ${x + FORK_SPREAD} ${y} L ${x} ${cy}`;
-}
 
 function header(node: GraphNode, tagline: string | undefined, actions = ""): string {
   return `
@@ -309,7 +349,7 @@ function renderContact(node: GraphNode): string {
   });
   if (resume) {
     rows.push(
-      `<li><span class="field-label">resume</span><a href="${esc(resume.url)}" target="_blank" rel="noopener">Open PDF ↗</a></li>`,
+      `<li><span class="field-label">résumé</span><a href="${esc(resume.url)}" target="_blank" rel="noopener">Open PDF ↗</a></li>`,
     );
   }
 

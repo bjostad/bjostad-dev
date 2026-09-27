@@ -8,13 +8,18 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 // still match, so a stale save from a previous version would otherwise
 // keep "validating" and loading over whatever the current default should
 // be, even though nothing about the content changed.
-const STORAGE_KEY = "bjostad-graph-layout-v7";
+const STORAGE_KEY = "bjostad-graph-layout-v8";
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 // How long a skill's projects stay revealed after the pointer leaves its
 // row — long enough to travel from the row to one of those project cards.
 const HOVER_GRACE_MS = 600;
 const FIT_PADDING = 32;
 const MIN_SCALE = 0.45;
+// Fitting a tall graph onto a short screen shrinks the card text past
+// comfortable reading size, so the fit never goes below this for height:
+// the canvas grows taller than the window instead and the page scrolls.
+// (Width still always fits — no sideways scrolling.)
+const READABLE_SCALE = 0.9;
 // Clearance kept between a line and any card edge it runs alongside.
 const ROW_MARGIN = 14;
 // One uniform spacing for parallel lines, both vertical and horizontal.
@@ -39,6 +44,42 @@ const MOBILE_QUERY = window.matchMedia("(max-width: 640px)");
 const MOBILE_PAD = 14;
 const MOBILE_CHANNEL = 34;
 const MOBILE_CARD_GAP = 16;
+// Distance between skill lines entering the same project side by side.
+const ENTRY_SPACING = 12;
+// Side-by-side layout, the default on any window wider than it is tall: see layoutSide.
+const SIDE_LANE = 8; // spacing between parallel lines in the side layout's lanes
+const SIDE_ROW_GAP = 14; // no lines run between grid rows, so they can sit close
+// Extra width at the "you" end of the channel, kept free of line columns,
+// so each line's first flat stretch fits its «use» arrowhead.
+const SIDE_START_ROOM = 8;
+const SIDE_CONTACT_GAP = 40;
+// A skill line's «use» arrowhead: its length along the line, and half its spread.
+const ARROW_LEN = 9;
+const ARROW_HALF = 5;
+
+/** A drawn edge. Skill lines are UML «use» dependencies, drawn dashed
+ * (setSkillPath), so they also carry a separate solid arrowhead, and a solid
+ * copy of the line in a mask (`reveal`) that the draw-in animates — a line's
+ * dash pattern can't also run the draw-in. */
+interface EdgeEl {
+  from: string;
+  to: string;
+  el: SVGPathElement;
+  arrow?: SVGPathElement;
+  reveal?: SVGPathElement;
+}
+
+/** Where the side layout leaves room for skill lines (canvas coordinates). */
+interface SideGeometry {
+  /** Vertical lane between "you" and the project grid: [left, right]. */
+  channel: [number, number];
+  /** Horizontal lane above the grid: [top, bottom]. */
+  band: [number, number];
+  /** Vertical lane between the grid's two columns: [left, right]. */
+  gutter: [number, number];
+  /** Projects in the grid's right column, reached through band and gutter. */
+  rightCol: Set<string>;
+}
 
 interface AttributeOffset {
   dx: number;
@@ -65,7 +106,7 @@ export class GraphCanvas {
   private attributeEls = new Map<string, HTMLElement>();
   /** Each attribute's connection point, as an offset from "you"'s center — see measureAttributeOffsets. */
   private attributeOffset = new Map<string, AttributeOffset>();
-  private edgeEls: { from: string; to: string; el: SVGPathElement }[] = [];
+  private edgeEls: EdgeEl[] = [];
   private attrColor = new Map<string, string>();
   private onExpand: (node: GraphNode) => void;
   private hoverId: string | null = null;
@@ -79,8 +120,15 @@ export class GraphCanvas {
   private mobile = MOBILE_QUERY.matches;
   /** Height of the single-column mobile layout, which the page scrolls through. */
   private mobileHeight = 0;
+  /** Side-by-side layout (see layoutSide) rather than the stacked diagram. */
+  private side = !this.mobile && !isPortrait();
+  private sideGeo: SideGeometry | null = null;
 
-  constructor(root: HTMLElement, data: GraphData, onExpand: (node: GraphNode) => void) {
+  constructor(
+    root: HTMLElement,
+    data: GraphData,
+    onExpand: (node: GraphNode) => void,
+  ) {
     this.root = root;
     this.data = data;
     this.onExpand = onExpand;
@@ -91,7 +139,7 @@ export class GraphCanvas {
     // coming from a fresh layout or a restored session.
     reduceAttributeProjectCrossings(this.data);
 
-    const stored = this.mobile ? null : this.loadPositions();
+    const stored = this.mobile || this.sideLayout ? null : this.loadPositions();
     this.positions = stored ?? computeInitialLayout(data);
 
     // Lines are colored by skill type (language, framework, …), matching
@@ -103,6 +151,7 @@ export class GraphCanvas {
 
     this.root.innerHTML = "";
     this.root.classList.add("graph-root");
+    this.root.classList.toggle("side-layout", this.sideLayout);
 
     this.viewport = document.createElement("div");
     this.viewport.className = "viewport";
@@ -118,9 +167,12 @@ export class GraphCanvas {
 
     this.buildEdges();
     this.buildNodes();
+    this.measureNodes();
     this.measureAttributeOffsets();
     if (this.mobile) {
       this.layoutMobile();
+    } else if (this.sideLayout) {
+      this.layoutSide();
     } else if (!stored) {
       // Only a freshly computed layout gets the no-overlap / clearance
       // guarantees — a stored layout may include positions the user
@@ -148,7 +200,8 @@ export class GraphCanvas {
     });
 
     window.addEventListener("resize", () => {
-      if (MOBILE_QUERY.matches !== this.mobile) {
+      const mobile = MOBILE_QUERY.matches;
+      if (mobile !== this.mobile || (!mobile && isPortrait() === this.side)) {
         this.switchLayoutMode();
       } else if (this.mobile) {
         this.layoutMobile(); // width changed (e.g. rotation): cards resize, so re-stack
@@ -196,7 +249,7 @@ export class GraphCanvas {
   private layoutMobile() {
     const width = this.root.clientWidth;
     this.root.style.setProperty("--mobile-card-w", `${width - MOBILE_PAD * 2 - MOBILE_CHANNEL}px`);
-    for (const [id, el] of this.nodeEls) this.nodeSize.set(id, { w: el.offsetWidth, h: el.offsetHeight });
+    this.measureNodes();
     this.measureAttributeOffsets();
 
     const order = [
@@ -216,16 +269,100 @@ export class GraphCanvas {
     this.mobileHeight = y - MOBILE_CARD_GAP + MOBILE_PAD;
   }
 
-  /** Crossing the phone breakpoint (resizing a desktop window, rotating a
-   * tablet) swaps between the column and diagram layouts. */
+  /**
+   * Records every card's rendered size. First, on desktop layouts, every
+   * project card is given the tallest one's height so the grid reads as
+   * a set of equal cards (they already share a width, style.css); the
+   * phone column lets each card fit its own content.
+   */
+  private measureNodes() {
+    const projects = this.data.nodes.filter((n) => n.type === "project").map((n) => this.nodeEls.get(n.id)!);
+    for (const el of projects) el.style.minHeight = "";
+    if (!this.mobile && projects.length) {
+      const tallest = Math.max(...projects.map((el) => el.offsetHeight));
+      for (const el of projects) el.style.minHeight = `${tallest}px`;
+    }
+    for (const [id, el] of this.nodeEls) this.nodeSize.set(id, { w: el.offsetWidth, h: el.offsetHeight });
+  }
+
+  /** Whether the side-by-side layout is showing. */
+  private get sideLayout(): boolean {
+    return this.side;
+  }
+
+  /**
+   * Side-by-side layout, used on any window wider than it is tall (phones
+   * keep their column; taller-than-wide windows get the stacked diagram,
+   * computeInitialLayout): "you" top-left with the
+   * contact card under it, and the projects in a two-column grid to the
+   * right in ranked order (left to right, top to bottom). Uses the width a
+   * desktop window has to spare instead of stacking everything vertically.
+   *
+   * Room is left for skill lines in three lanes, each wide enough for one
+   * line per skill of the most-connected project: a channel between "you"
+   * and the grid, a band above the grid, and a gutter between its columns
+   * (see routeSkillEdgesSide). Cards aren't draggable here, since the
+   * routing depends on those lanes staying clear.
+   */
+  private layoutSide() {
+    this.measureNodes();
+    this.measureAttributeOffsets();
+
+    const skillsPerProject = new Map<string, number>();
+    for (const e of this.data.edges) {
+      if (this.attributeOffset.has(e.from)) skillsPerProject.set(e.to, (skillsPerProject.get(e.to) ?? 0) + 1);
+    }
+    const maxSkills = Math.max(1, ...skillsPerProject.values());
+    const lane = ROW_MARGIN * 2 + SIDE_LANE * (maxSkills - 1);
+
+    const you = this.nodeSize.get("you")!;
+    const grid = this.data.nodes.filter((n) => n.type !== "you" && n.type !== "contact");
+    const colW = Math.max(...grid.map((n) => this.nodeSize.get(n.id)!.w));
+    const channel: [number, number] = [you.w, you.w + SIDE_START_ROOM + lane];
+    const gutter: [number, number] = [channel[1] + colW, channel[1] + colW + lane];
+    const colLeft = [channel[1], gutter[1]];
+
+    const positions = new Map<string, LayoutNode>();
+    positions.set("you", { id: "you", x: you.w / 2, y: you.h / 2 });
+    const contact = this.data.nodes.find((n) => n.type === "contact");
+    if (contact) {
+      const s = this.nodeSize.get(contact.id)!;
+      positions.set(contact.id, { id: contact.id, x: s.w / 2, y: you.h + SIDE_CONTACT_GAP + s.h / 2 });
+    }
+
+    const rightCol = new Set<string>();
+    let rowTop = lane; // the band above the grid starts level with the top of "you"
+    for (let i = 0; i < grid.length; i += 2) {
+      const row = grid.slice(i, i + 2);
+      row.forEach((n, col) => {
+        const s = this.nodeSize.get(n.id)!;
+        positions.set(n.id, { id: n.id, x: colLeft[col] + s.w / 2, y: rowTop + s.h / 2 });
+        if (col === 1) rightCol.add(n.id);
+      });
+      rowTop += Math.max(...row.map((n) => this.nodeSize.get(n.id)!.h)) + SIDE_ROW_GAP;
+    }
+
+    this.positions = positions;
+    this.sideGeo = { channel, band: [0, lane], gutter, rightCol };
+  }
+
+  /** Crossing the phone breakpoint, or a window turning taller than it is
+   * wide or back (resizing a desktop window, rotating a tablet), swaps
+   * between the column, stacked, and side layouts. */
   private switchLayoutMode() {
     this.mobile = MOBILE_QUERY.matches;
+    this.side = !this.mobile && !isPortrait();
+    this.root.classList.toggle("side-layout", this.sideLayout);
     if (this.mobile) {
       this.layoutMobile();
+    } else if (this.sideLayout) {
+      this.root.style.removeProperty("--mobile-card-w");
+      this.root.style.height = "";
+      this.layoutSide();
     } else {
       this.root.style.removeProperty("--mobile-card-w");
       this.root.style.height = "";
-      for (const [id, el] of this.nodeEls) this.nodeSize.set(id, { w: el.offsetWidth, h: el.offsetHeight });
+      this.measureNodes();
       this.measureAttributeOffsets();
       const stored = this.loadPositions();
       this.positions = stored ?? computeInitialLayout(this.data);
@@ -240,17 +377,23 @@ export class GraphCanvas {
     this.onLayoutChange?.(this.hasCustomLayout);
   }
 
-  /** Scales (never up) and centers the whole graph. If even
-   * the minimum scale doesn't fit, it anchors to the top-left instead so
-   * "you" stays in view. On phones the column is shown at full size and
-   * the page scrolls through it instead. */
+  /** Scales (never up) and centers the whole graph. Height is only fitted
+   * down to READABLE_SCALE; past that the canvas grows taller than the
+   * window (.tall) and the page scrolls through it. If even the minimum
+   * scale doesn't fit the width, it anchors to the left instead so "you"
+   * stays in view. On phones the column is shown at full size and the
+   * page scrolls through it instead. */
   private center() {
     if (this.mobile) {
       this.viewport.style.transform = "translate(0px, 0px) scale(1)";
+      this.root.classList.remove("tall");
       this.root.style.height = `${this.mobileHeight}px`;
       return;
     }
+    // The window, not the canvas, sets the available height: a .tall
+    // canvas is already taller than the window.
     const rect = this.root.getBoundingClientRect();
+    const windowH = window.innerHeight - (rect.top + window.scrollY);
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
@@ -263,29 +406,64 @@ export class GraphCanvas {
       minY = Math.min(minY, p.y - s.h / 2 - 16); // room for the you<->contact line above
       maxY = Math.max(maxY, p.y + s.h / 2);
     }
-    if (minX === Infinity || !rect.width || !rect.height) {
+    if (minX === Infinity || !rect.width || windowH <= 0) {
       this.viewport.style.transform = `translate(${rect.width / 2}px, ${rect.height / 2}px)`;
       return;
     }
 
     const availW = rect.width - FIT_PADDING * 2;
-    const availH = rect.height - FIT_PADDING * 2;
-    const scale = Math.max(MIN_SCALE, Math.min(1, availW / (maxX - minX), availH / (maxY - minY)));
+    const availH = windowH - FIT_PADDING * 2;
+    const heightFit = Math.max(READABLE_SCALE, availH / (maxY - minY));
+    const scale = Math.max(MIN_SCALE, Math.min(1, availW / (maxX - minX), heightFit));
+    const tall = (maxY - minY) * scale > availH;
+    this.root.classList.toggle("tall", tall);
+    this.root.style.height = tall ? `${Math.ceil((maxY - minY) * scale + FIT_PADDING * 2)}px` : "";
+    const height = tall ? this.root.offsetHeight : windowH;
     const tx = (maxX - minX) * scale > availW ? FIT_PADDING - scale * minX : rect.width / 2 - (scale * (minX + maxX)) / 2;
-    const ty = (maxY - minY) * scale > availH ? FIT_PADDING - scale * minY : rect.height / 2 - (scale * (minY + maxY)) / 2;
+    const ty = tall ? FIT_PADDING - scale * minY : height / 2 - (scale * (minY + maxY)) / 2;
     this.viewport.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
   }
 
   private buildEdges() {
-    for (const e of this.data.edges) {
+    // UML composition: a filled diamond at the "whole" end (you -> contact).
+    const defs = document.createElementNS(SVG_NS, "defs");
+    defs.innerHTML = `<marker id="uml-composition" viewBox="0 0 18 10" refX="0" refY="5" markerWidth="18" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path class="uml-diamond" d="M0 5 L9 0 L18 5 L9 10 Z"/></marker>`;
+    this.svg.appendChild(defs);
+
+    this.data.edges.forEach((e, i) => {
       const el = document.createElementNS(SVG_NS, "path");
       const toContact = this.data.nodes.some((n) => n.id === e.to && n.type === "contact");
-      el.setAttribute("class", `edge edge-${e.kind}${toContact ? " edge-contact" : ""}`);
+      const isSkill = e.kind === "built-with";
+      el.setAttribute("class", `edge edge-${e.kind}${isSkill ? " edge-use" : ""}${toContact ? " edge-contact" : ""}`);
+      if (toContact) el.setAttribute("marker-start", "url(#uml-composition)");
       const color = this.attrColor.get(e.from);
       if (color) el.style.stroke = color;
       this.svg.appendChild(el);
-      this.edgeEls.push({ from: e.from, to: e.to, el });
-    }
+      const line: EdgeEl = { from: e.from, to: e.to, el };
+
+      if (isSkill) {
+        const mask = document.createElementNS(SVG_NS, "mask");
+        mask.id = `skill-reveal-${i}`;
+        mask.setAttribute("maskUnits", "userSpaceOnUse");
+        mask.setAttribute("x", "-10000");
+        mask.setAttribute("y", "-10000");
+        mask.setAttribute("width", "20000");
+        mask.setAttribute("height", "20000");
+        const reveal = document.createElementNS(SVG_NS, "path");
+        reveal.setAttribute("class", "edge-reveal");
+        mask.appendChild(reveal);
+        defs.appendChild(mask);
+        el.setAttribute("mask", `url(#${mask.id})`);
+
+        const arrow = document.createElementNS(SVG_NS, "path");
+        arrow.setAttribute("class", "edge edge-built-with edge-arrow concealed");
+        if (color) arrow.style.stroke = color;
+        this.svg.appendChild(arrow);
+        line.reveal = reveal;
+        line.arrow = arrow;
+      }
+      this.edgeEls.push(line);
+    });
   }
 
   private buildNodes() {
@@ -394,10 +572,10 @@ export class GraphCanvas {
   private remeasure() {
     if (this.mobile) {
       this.layoutMobile(); // card heights changed, so the column re-stacks
+    } else if (this.sideLayout) {
+      this.layoutSide();
     } else {
-      for (const [id, el] of this.nodeEls) {
-        this.nodeSize.set(id, { w: el.offsetWidth, h: el.offsetHeight });
-      }
+      this.measureNodes();
       this.measureAttributeOffsets();
       // The first layout was spaced with fallback-font card sizes, which
       // can push cards apart and close the gaps skill lines drop through.
@@ -428,8 +606,8 @@ export class GraphCanvas {
         .map(
           (a) => `
             <div class="attr-row" data-attr-id="${escapeHtml(a.id)}" style="--cat: ${this.attrColor.get(a.id)}" tabindex="0" role="button" aria-label="${escapeHtml(a.label)} — highlight connected projects">
-              <span class="attr-label">${escapeHtml(a.label)}</span>
-              ${a.category ? `<span class="attr-badge">${escapeHtml(a.category)}</span>` : ""}
+              <span class="attr-label"><span class="attr-visibility">+</span> ${escapeHtml(a.label)}</span>
+              ${a.category ? `<span class="attr-badge">: ${escapeHtml(a.category[0].toUpperCase() + a.category.slice(1))}</span>` : ""}
             </div>`,
         )
         .join("");
@@ -446,7 +624,7 @@ export class GraphCanvas {
         ${
           attrRows
             ? `<div class="attr-list">
-                ${node.subtitle ? `<div class="attr-entity">${escapeHtml(node.subtitle)}</div>` : ""}
+                ${node.subtitle ? `<div class="attr-entity">«${escapeHtml(node.subtitle.replace(/\s+/g, ""))}»</div>` : ""}
                 ${attrRows}
               </div>`
             : ""
@@ -471,7 +649,7 @@ export class GraphCanvas {
       ? links
           .filter((l) => !linked.has(l.label))
           .map((l) => {
-            const label = /resume/i.test(l.label) ? "resume" : l.label.toLowerCase();
+            const label = /resume/i.test(l.label) ? "résumé" : l.label.toLowerCase();
             const text = /resume/i.test(l.label) ? "View PDF" : l.url;
             return `<div class="node-field"><span class="field-label">${escapeHtml(label)}</span> ${linkHtml(l.url, text)}</div>`;
           })
@@ -482,11 +660,17 @@ export class GraphCanvas {
       ? `<ul class="node-highlights">${node.cardHighlights.map((h) => `<li>${escapeHtml(h)}</li>`).join("")}</ul>`
       : "";
 
+    // UML class box: a name compartment (stereotype, name, tagline), then
+    // the card's highlights or fields in a compartment of their own.
+    const stereotype = node.type === "contact" ? "information" : node.type; // UML information item
     return `
-      <div class="node-title">${escapeHtml(node.title)}</div>
-      ${node.subtitle ? `<div class="node-subtitle">${escapeHtml(node.subtitle)}</div>` : ""}
+      <div class="uml-name">
+        <div class="uml-stereotype">«${escapeHtml(stereotype)}»</div>
+        <div class="node-title">${escapeHtml(node.title)}</div>
+        ${node.subtitle ? `<div class="node-subtitle">${escapeHtml(node.subtitle)}</div>` : ""}
+      </div>
       ${highlightsHtml}
-      ${fieldsHtml}`;
+      ${fieldsHtml ? `<div class="uml-compartment">${fieldsHtml}</div>` : ""}`;
   }
 
   private suppressClick = false;
@@ -497,8 +681,9 @@ export class GraphCanvas {
     // links and skill rows must not start a drag, or their own click
     // never fires and the card's detail panel opens instead.
     if ((ev.target as Element).closest("a, .attr-row")) return;
-    // No dragging in the phone column: a swipe on a card should scroll the page.
-    if (this.mobile) return;
+    // No dragging in the phone column (a swipe on a card should scroll the
+    // page) or the side layout (its line routing needs its lanes clear).
+    if (this.mobile || this.sideLayout) return;
     ev.preventDefault();
     const pos = this.positions.get(id)!;
     const scale = this.getScale();
@@ -588,31 +773,43 @@ export class GraphCanvas {
     // Lines first, so each newly lit project knows when its first line
     // will reach it.
     const arrivalMs = new Map<string, number>();
-    for (const { from, to, el } of this.edgeEls) {
+    // "You" and the contact card never dim: they're relevant whatever is
+    // highlighted (and a project stays pinned after its section closes).
+    // Neither does the line between them.
+    const alwaysLit = new Set(this.data.nodes.filter((n) => n.type === "you" || n.type === "contact").map((n) => n.id));
+    for (const line of this.edgeEls) {
+      const { from, to, el } = line;
       const isAttrEdge = this.attributeOffset.has(from);
       const active = this.isLitEdge(from, to);
       const visible = !isAttrEdge || active;
-      el.classList.toggle("concealed", !visible);
-      el.classList.toggle("active", active);
-      el.classList.toggle("dim", activeId !== null && visible && !active);
+      for (const part of line.arrow ? [el, line.arrow] : [el]) {
+        part.classList.toggle("concealed", !visible);
+        part.classList.toggle("active", active);
+        part.classList.toggle(
+          "dim",
+          activeId !== null && visible && !active && !(alwaysLit.has(from) && alwaysLit.has(to)),
+        );
+      }
 
       if (visible && !this.shownEdges.has(el)) {
         this.shownEdges.add(el);
-        if (isAttrEdge) arrivalMs.set(to, Math.min(arrivalMs.get(to) ?? Infinity, this.drawIn(el)));
+        if (isAttrEdge) arrivalMs.set(to, Math.min(arrivalMs.get(to) ?? Infinity, this.drawIn(line)));
       } else if (!visible && this.shownEdges.has(el)) {
         this.shownEdges.delete(el);
-        el.getAnimations().forEach((a) => a.cancel());
+        (line.reveal ?? el).getAnimations().forEach((a) => a.cancel());
       }
     }
 
     for (const [nid, el] of this.nodeEls) {
       const lit = nid === activeId || litProjects.has(nid);
       const rank = focus?.projects.get(nid);
-      const dim = focus
-        ? this.revealable.has(nid) && rank === undefined
-        : this.revealable.has(nid)
-          ? !lit
-          : activeId !== null && nid !== "you";
+      const dim = alwaysLit.has(nid)
+        ? false
+        : focus
+          ? this.revealable.has(nid) && rank === undefined
+          : this.revealable.has(nid)
+            ? !lit
+            : activeId !== null;
       el.classList.toggle("focus-hit", rank !== undefined);
       if (rank !== undefined && focus?.ranked) el.dataset.rank = `#${rank + 1} ${focus.label}`;
       else delete el.dataset.rank;
@@ -647,8 +844,9 @@ export class GraphCanvas {
   }
 
   /** Animates a line drawing itself from its start; returns how long that takes. */
-  private drawIn(el: SVGPathElement): number {
+  private drawIn(line: EdgeEl): number {
     if (reducedMotion) return 0;
+    const el = line.reveal ?? line.el;
     const len = el.getTotalLength();
     const ms = Math.min(900, Math.max(350, len * 0.9));
     el.style.strokeDasharray = `${len} ${len}`;
@@ -679,7 +877,7 @@ export class GraphCanvas {
 
   /** Whether the diagram shows a user-arranged layout rather than the default. */
   get hasCustomLayout(): boolean {
-    return !this.mobile && this.loadPositions() !== null;
+    return !this.mobile && !this.sideLayout && this.loadPositions() !== null;
   }
 
   private render() {
@@ -760,20 +958,19 @@ export class GraphCanvas {
       // above the other, so this one leaves the top of "you", clears above
       // both boxes, and drops into the top of "contact".
       // One-to-many: one "you", many contact methods on the contact card.
-      if (toType === "contact" && this.mobile) {
-        // Contact sits directly below "you" in the phone column: a straight
-        // drop near the left edge, clear of the callout hanging on the right.
+      if (toType === "contact" && (this.mobile || this.sideLayout)) {
+        // Contact sits directly below "you" in the phone column and the side
+        // layout: a straight drop near the left edge, clear of the callout
+        // hanging on the right.
         const x = Math.max(a.l, b.l) + 24;
-        el.setAttribute("d", `M ${x} ${a.b} L ${x} ${b.t}` + tickMark(x, a.b, 0, 1) + crowsFoot(x, b.t, 0, -1));
+        el.setAttribute("d", `M ${x} ${a.b} L ${x} ${b.t}`);
         continue;
       }
       if (toType === "contact") {
         const clearAbove = Math.min(rowTop.get(fromType) ?? a.t, rowTop.get(toType) ?? b.t) - ROW_MARGIN;
         el.setAttribute(
           "d",
-          `M ${a.x} ${a.t} L ${a.x} ${clearAbove} L ${b.x} ${clearAbove} L ${b.x} ${b.t}` +
-            tickMark(a.x, a.t, 0, -1) +
-            crowsFoot(b.x, b.t, 0, -1),
+          `M ${a.x} ${a.t} L ${a.x} ${clearAbove} L ${b.x} ${clearAbove} L ${b.x} ${b.t}`,
         );
         continue;
       }
@@ -816,9 +1013,8 @@ export class GraphCanvas {
    * columns (lines run right, so outer = higher) and the deepest when it
    * lies to the left (lines double back, so outer = lower).
    *
-   * One skill -> its projects is drawn with a crow's foot at the skill
-   * ("many") end and a tick at the project ("one") end. Subpaths run in
-   * drawing order — foot, line, tick — so the draw-in travels outward.
+   * Each line is a UML «use» dependency — the project uses the skill —
+   * drawn dashed with an open arrowhead at the skill (setSkillPath).
    */
   private routeSkillEdges() {
     const you = this.box("you");
@@ -834,6 +1030,10 @@ export class GraphCanvas {
 
     if (this.mobile) {
       this.routeSkillEdgesMobile(lit, skills, you, youCenterY);
+      return;
+    }
+    if (this.sideLayout) {
+      this.routeSkillEdgesSide(lit, skills, you, youCenterY);
       return;
     }
 
@@ -852,21 +1052,21 @@ export class GraphCanvas {
     const room = floor - ceil;
     const level = k > 1 && room > 0 ? Math.max(6, Math.min(GAP, room / (k - 1))) : GAP;
 
-    const draw = (el: SVGPathElement, exitY: number, colX: number, bandY: number, entryX: number, entryY: number) => {
-      el.setAttribute(
-        "d",
-        crowsFoot(exitX, exitY, 1, 0) +
-          ` M ${exitX} ${exitY} L ${colX} ${exitY} L ${colX} ${bandY} L ${entryX} ${bandY} L ${entryX} ${entryY}` +
-          tickMark(entryX, entryY, 0, entryY >= bandY ? -1 : 1),
+    const draw = (line: EdgeEl, exitY: number, colX: number, bandY: number, entryX: number, entryY: number) => {
+      this.setSkillPath(
+        line,
+        `M ${exitX} ${exitY} L ${colX} ${exitY} L ${colX} ${bandY} L ${entryX} ${bandY} L ${entryX} ${entryY}`,
+        exitX,
+        exitY,
       );
     };
 
     if (k === 1) {
       const exitY = youCenterY + this.attributeOffset.get(skills[0])!.dy;
-      for (const { to, el } of lit) {
-        const t = this.box(to);
+      for (const line of lit) {
+        const t = this.box(line.to);
         if (!t) continue;
-        draw(el, exitY, exitX + GAP, floor, this.clearEntryX(to, t, 0, floor), t.t);
+        draw(line, exitY, exitX + GAP, floor, this.clearEntryX(line.to, t, 0, floor), t.t);
       }
       return;
     }
@@ -880,11 +1080,11 @@ export class GraphCanvas {
     const goesRight = center - half > exitX + GAP * k;
 
     skills.forEach((skill, i) => {
-      const el = lit.find((e) => e.from === skill)!.el;
+      const line = lit.find((e) => e.from === skill)!;
       const exitY = youCenterY + this.attributeOffset.get(skill)!.dy;
       const colX = exitX + GAP * (k - i);
       const bandY = goesRight ? floor - level * (k - 1 - i) : floor - level * i;
-      draw(el, exitY, colX, bandY, center + half - spacing * i, t.t);
+      draw(line, exitY, colX, bandY, center + half - spacing * i, t.t);
     });
   }
 
@@ -900,7 +1100,7 @@ export class GraphCanvas {
    * so the lines nest instead of crossing.
    */
   private routeSkillEdgesMobile(
-    lit: { from: string; to: string; el: SVGPathElement }[],
+    lit: EdgeEl[],
     skills: string[],
     you: Box,
     youCenterY: number,
@@ -908,12 +1108,12 @@ export class GraphCanvas {
     const exitX = you.r;
     const channelLeft = exitX + 4;
     const channelWidth = this.root.clientWidth - 4 - channelLeft;
-    const draw = (el: SVGPathElement, exitY: number, trunkX: number, target: Box, entryY: number) => {
-      el.setAttribute(
-        "d",
-        crowsFoot(exitX, exitY, 1, 0) +
-          ` M ${exitX} ${exitY} L ${trunkX} ${exitY} L ${trunkX} ${entryY} L ${target.r} ${entryY}` +
-          tickMark(target.r, entryY, 1, 0),
+    const draw = (line: EdgeEl, exitY: number, trunkX: number, target: Box, entryY: number) => {
+      this.setSkillPath(
+        line,
+        `M ${exitX} ${exitY} L ${trunkX} ${exitY} L ${trunkX} ${entryY} L ${target.r} ${entryY}`,
+        exitX,
+        exitY,
       );
     };
 
@@ -921,9 +1121,9 @@ export class GraphCanvas {
     if (k === 1) {
       const exitY = youCenterY + this.attributeOffset.get(skills[0])!.dy;
       const trunkX = channelLeft + Math.min(14, channelWidth / 2);
-      for (const { to, el } of lit) {
-        const t = this.box(to);
-        if (t) draw(el, exitY, trunkX, t, (t.t + t.b) / 2);
+      for (const line of lit) {
+        const t = this.box(line.to);
+        if (t) draw(line, exitY, trunkX, t, (t.t + t.b) / 2);
       }
       return;
     }
@@ -931,13 +1131,121 @@ export class GraphCanvas {
     const t = this.box(lit[0].to);
     if (!t) return;
     const trunkGap = Math.max(2.5, Math.min(8, (channelWidth - 6) / k));
-    const spacing = Math.min(10, ((t.b - t.t) * 0.7) / (k - 1));
+    const spacing = Math.min(ENTRY_SPACING, ((t.b - t.t) * 0.7) / (k - 1));
     const centerY = (t.t + t.b) / 2;
     skills.forEach((skill, i) => {
-      const el = lit.find((e) => e.from === skill)!.el;
+      const line = lit.find((e) => e.from === skill)!;
       const exitY = youCenterY + this.attributeOffset.get(skill)!.dy;
-      draw(el, exitY, channelLeft + 4 + trunkGap * (k - 1 - i), t, centerY + ((k - 1) / 2 - i) * spacing);
+      draw(line, exitY, channelLeft + 4 + trunkGap * (k - 1 - i), t, centerY + ((k - 1) / 2 - i) * spacing);
     });
+  }
+
+  /**
+   * Side-layout routing (see layoutSide). Every line leaves "you"'s right
+   * edge and enters a project's left edge; nothing runs between grid rows.
+   * Left-column projects are reached straight across the channel. Right-
+   * column projects are reached up the channel, across the band above the
+   * grid, and down the gutter between its columns.
+   *
+   * One skill -> many projects: one trunk each in the channel, band, and
+   * gutter, with a branch into each project.
+   *
+   * Many skills -> one project: each skill gets its own channel column,
+   * band level, gutter column, and entry point, ordered so the lines nest
+   * instead of crossing. Entry points always follow the skill order (top
+   * skill enters highest). Right column: the top skill takes the innermost
+   * channel column, the highest band level, and the outermost gutter
+   * column. Left column: skills that drop to their entry take the outer
+   * channel columns, top skill outermost; skills that rise take the inner
+   * ones, top skill innermost.
+   */
+  private routeSkillEdgesSide(
+    lit: EdgeEl[],
+    skills: string[],
+    you: Box,
+    youCenterY: number,
+  ) {
+    const g = this.sideGeo;
+    if (!g) return;
+    const exitX = you.r;
+    const exitY = (skill: string) => youCenterY + this.attributeOffset.get(skill)!.dy;
+    // n evenly spaced lines centered in a lane, lowest coordinate first.
+    const spread = (n: number, [lo, hi]: [number, number]) => {
+      const inner = lo + ROW_MARGIN;
+      const outer = hi - ROW_MARGIN;
+      const step = n > 1 ? Math.min(SIDE_LANE, (outer - inner) / (n - 1)) : 0;
+      const mid = (inner + outer) / 2;
+      return Array.from({ length: n }, (_, i) => mid - (step * (n - 1)) / 2 + step * i);
+    };
+    // Line columns stay clear of the arrowheads beside "you".
+    const channel: [number, number] = [g.channel[0] + SIDE_START_ROOM, g.channel[1]];
+    const gutter = g.gutter;
+    const draw = (line: EdgeEl, pts: [number, number][]) => {
+      this.setSkillPath(line, pts.map(([x, y], i) => `${i ? "L" : "M"} ${x} ${y}`).join(" "), exitX, pts[0][1]);
+    };
+
+    const k = skills.length;
+    if (k === 1) {
+      const ey = exitY(skills[0]);
+      const [cx] = spread(1, channel);
+      const [by] = spread(1, g.band);
+      const [gx] = spread(1, gutter);
+      for (const line of lit) {
+        const { to } = line;
+        const t = this.box(to);
+        if (!t) continue;
+        const en = (t.t + t.b) / 2;
+        draw(
+          line,
+          g.rightCol.has(to)
+            ? [[exitX, ey], [cx, ey], [cx, by], [gx, by], [gx, en], [t.l, en]]
+            : [[exitX, ey], [cx, ey], [cx, en], [t.l, en]],
+        );
+      }
+      return;
+    }
+
+    const target = lit[0].to;
+    const t = this.box(target);
+    if (!t) return;
+    const step = Math.min(ENTRY_SPACING, ((t.b - t.t) * 0.7) / (k - 1));
+    const entries = skills.map((_, i) => (t.t + t.b) / 2 + (i - (k - 1) / 2) * step);
+    const cols = spread(k, channel); // innermost (nearest "you") first
+
+    if (g.rightCol.has(target)) {
+      const levels = spread(k, g.band); // highest first
+      const gutterCols = spread(k, gutter); // innermost first
+      skills.forEach((skill, i) => {
+        const line = lit.find((e) => e.from === skill)!;
+        const ey = exitY(skill);
+        const cx = cols[i];
+        const by = levels[i];
+        const gx = gutterCols[k - 1 - i];
+        draw(line, [[exitX, ey], [cx, ey], [cx, by], [gx, by], [gx, entries[i]], [t.l, entries[i]]]);
+      });
+      return;
+    }
+
+    // Left column. Exit rows are further apart than entry points, so the
+    // skills that drop to their entry are always a run from the top.
+    const drops = skills.filter((skill, i) => exitY(skill) < entries[i]).length;
+    skills.forEach((skill, i) => {
+      const line = lit.find((e) => e.from === skill)!;
+      const ey = exitY(skill);
+      const cx = i < drops ? cols[k - 1 - i] : cols[i - drops];
+      draw(line, [[exitX, ey], [cx, ey], [cx, entries[i]], [t.l, entries[i]]]);
+    });
+  }
+
+  /** Sets a skill line's route (and its reveal copy, see EdgeEl) and puts
+   * its «use» arrowhead at the skill end: open, pointing back into "you". */
+  private setSkillPath(line: EdgeEl, d: string, exitX: number, exitY: number) {
+    line.el.setAttribute("d", d);
+    line.reveal?.setAttribute("d", d);
+    line.arrow?.setAttribute(
+      "d",
+      `M ${exitX + ARROW_LEN} ${exitY - ARROW_HALF} L ${exitX} ${exitY} L ${exitX + ARROW_LEN} ${exitY + ARROW_HALF}`,
+    );
   }
 
   /**
@@ -966,7 +1274,7 @@ export class GraphCanvas {
   }
 
   resetLayout() {
-    if (this.mobile) return; // the phone column isn't draggable, so there's nothing to reset
+    if (this.mobile || this.sideLayout) return; // not draggable, so there's nothing to reset
     this.positions = computeInitialLayout(this.data);
     this.ensureClearanceBelowYou();
     this.resolveOverlaps();
@@ -1067,6 +1375,11 @@ export class GraphCanvas {
       if (p) p.y += shift;
     }
   }
+}
+
+/** Taller than wide: the stacked diagram fits better than the side layout. */
+function isPortrait(): boolean {
+  return window.innerHeight > window.innerWidth;
 }
 
 const TICK_LEN = 9;
