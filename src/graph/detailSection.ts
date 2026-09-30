@@ -1,8 +1,11 @@
 import type { GraphNode } from "../data/types";
+import { dashedDrawIn } from "./dashes";
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const DURATION_MS = 1000;
-const SVG_NS = "http://www.w3.org/2000/svg";
+// The connector's dash pattern; keep in sync with .page-link in style.css.
+const LINK_DASH = 6;
+const LINK_GAP = 5;
 // Shared by the scroll and the line draw so the line reaches the section
 // exactly as the section arrives.
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
@@ -20,9 +23,6 @@ export class DetailSection {
   private section: HTMLElement;
   private svg: SVGSVGElement;
   private path: SVGPathElement;
-  /** Solid copy of the dashed connector, used as its mask: the draw-in
-   * animates this, since a dash pattern can't also run the draw-in. */
-  private reveal: SVGPathElement;
   private node: GraphNode | null = null;
   private scrollFrame = 0;
   private state: "closed" | "opening" | "open" | "closing" = "closed";
@@ -34,20 +34,6 @@ export class DetailSection {
     this.section = section;
     this.svg = svg;
     this.path = svg.querySelector("path")!;
-    const defs = document.createElementNS(SVG_NS, "defs");
-    const mask = document.createElementNS(SVG_NS, "mask");
-    mask.id = "page-link-reveal";
-    mask.setAttribute("maskUnits", "userSpaceOnUse");
-    mask.setAttribute("x", "0");
-    mask.setAttribute("y", "0");
-    mask.setAttribute("width", "100000");
-    mask.setAttribute("height", "100000");
-    this.reveal = document.createElementNS(SVG_NS, "path");
-    this.reveal.setAttribute("class", "page-link-reveal");
-    mask.appendChild(this.reveal);
-    defs.appendChild(mask);
-    svg.prepend(defs);
-    this.path.setAttribute("mask", `url(#${mask.id})`);
     // Any manual scroll input takes over from the automatic one.
     for (const type of ["wheel", "touchstart", "keydown"]) {
       window.addEventListener(type, () => cancelAnimationFrame(this.scrollFrame), { passive: true });
@@ -102,7 +88,7 @@ export class DetailSection {
     this.state = "closing";
     this.animateLine(true);
     const finish = () => {
-      this.reveal.getAnimations().forEach((a) => a.cancel());
+      this.path.getAnimations().forEach((a) => a.cancel());
       this.section.hidden = true;
       this.section.innerHTML = "";
       this.node = null;
@@ -115,12 +101,12 @@ export class DetailSection {
 
   /** Draws the line out from the card, or (retract) back into it. */
   private animateLine(retract: boolean) {
-    const el = this.reveal;
+    const el = this.path;
     el.getAnimations().forEach((a) => a.cancel());
     if (reducedMotion) return;
-    const len = el.getTotalLength();
-    el.style.strokeDasharray = `${len} ${len}`;
-    const frames = [{ strokeDashoffset: len }, { strokeDashoffset: 0 }];
+    const { array, run } = dashedDrawIn(el.getTotalLength(), LINK_DASH, LINK_GAP);
+    el.style.strokeDasharray = array;
+    const frames = [{ strokeDashoffset: run }, { strokeDashoffset: 0 }];
     const anim = el.animate(retract ? frames.reverse() : frames, {
       duration: DURATION_MS,
       easing: EASE_CSS,
@@ -134,7 +120,6 @@ export class DetailSection {
 
   private setPath(d: string) {
     this.path.setAttribute("d", d);
-    this.reveal.setAttribute("d", d);
   }
 
   /** Re-anchors the connector to the card's current on-screen position. */
@@ -198,11 +183,11 @@ export class DetailSection {
   }
 }
 
-
 /** Viewport x to turn down at after leaving a card's right edge: midway to
  * the nearest card beside it in its row, or, when nothing is there, a
  * fixed step past the right edge of this card and every card below it in
  * its column (a wider card below a narrower one). */
+
 function clearRightOf(card: HTMLElement, c: DOMRect): number {
   const others = [...document.querySelectorAll<HTMLElement>(".node")]
     .filter((o) => o !== card)

@@ -60,7 +60,8 @@ body {
   z-index: 1;
 }
 
-/* The dashed UML note anchor from a card to its detail section (the note). */
+/* The dashed UML note anchor from a card to its detail section (the note).
+   Keep the dash pattern in sync with LINK_DASH / LINK_GAP in detailSection.ts. */
 .page-link {
   fill: none;
   stroke: var(--accent-primary);
@@ -68,11 +69,6 @@ body {
   stroke-dasharray: 6 5;
 }
 
-.page-link-reveal {
-  fill: none;
-  stroke: #fff;
-  stroke-width: 6;
-}
 
 .page-link.page-link-contact {
   stroke: var(--accent-secondary);
@@ -732,8 +728,8 @@ a.btn.btn-doc {
 }
 
 /* Skill lines are UML «use» dependencies: dashed, with a solid open
-   arrowhead at the skill (canvas.ts setSkillPath). The draw-in animates a
-   solid copy of the line used as its mask (edge-reveal). */
+   arrowhead at the skill (canvas.ts setSkillPath). Keep the dash pattern
+   in sync with USE_DASH / USE_GAP there. */
 .edge-use {
   stroke-dasharray: 5 4;
   stroke-width: 1.4;
@@ -741,12 +737,6 @@ a.btn.btn-doc {
 
 .edge-arrow {
   stroke-width: 1.4;
-}
-
-.edge-reveal {
-  fill: none;
-  stroke: #fff;
-  stroke-width: 8;
 }
 
 .uml-diamond {

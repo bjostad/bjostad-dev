@@ -1,4 +1,5 @@
 import type { Focus, GraphData, GraphNode, SkillCategory } from "../data/types";
+import { dashedDrawIn } from "./dashes";
 import { computeInitialLayout, reduceAttributeProjectCrossings, type LayoutNode } from "./layout";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -56,17 +57,17 @@ const SIDE_CONTACT_GAP = 40;
 // A skill line's «use» arrowhead: its length along the line, and half its spread.
 const ARROW_LEN = 9;
 const ARROW_HALF = 5;
+// Skill lines' dash pattern; keep in sync with .edge-use in style.css.
+const USE_DASH = 5;
+const USE_GAP = 4;
 
 /** A drawn edge. Skill lines are UML «use» dependencies, drawn dashed
- * (setSkillPath), so they also carry a separate solid arrowhead, and a solid
- * copy of the line in a mask (`reveal`) that the draw-in animates — a line's
- * dash pattern can't also run the draw-in. */
+ * (setSkillPath), so they also carry a separate solid arrowhead. */
 interface EdgeEl {
   from: string;
   to: string;
   el: SVGPathElement;
   arrow?: SVGPathElement;
-  reveal?: SVGPathElement;
 }
 
 /** Where the side layout leaves room for skill lines (canvas coordinates). */
@@ -430,7 +431,7 @@ export class GraphCanvas {
     defs.innerHTML = `<marker id="uml-composition" viewBox="0 0 18 10" refX="0" refY="5" markerWidth="18" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path class="uml-diamond" d="M0 5 L9 0 L18 5 L9 10 Z"/></marker>`;
     this.svg.appendChild(defs);
 
-    this.data.edges.forEach((e, i) => {
+    for (const e of this.data.edges) {
       const el = document.createElementNS(SVG_NS, "path");
       const toContact = this.data.nodes.some((n) => n.id === e.to && n.type === "contact");
       const isSkill = e.kind === "built-with";
@@ -442,28 +443,14 @@ export class GraphCanvas {
       const line: EdgeEl = { from: e.from, to: e.to, el };
 
       if (isSkill) {
-        const mask = document.createElementNS(SVG_NS, "mask");
-        mask.id = `skill-reveal-${i}`;
-        mask.setAttribute("maskUnits", "userSpaceOnUse");
-        mask.setAttribute("x", "-10000");
-        mask.setAttribute("y", "-10000");
-        mask.setAttribute("width", "20000");
-        mask.setAttribute("height", "20000");
-        const reveal = document.createElementNS(SVG_NS, "path");
-        reveal.setAttribute("class", "edge-reveal");
-        mask.appendChild(reveal);
-        defs.appendChild(mask);
-        el.setAttribute("mask", `url(#${mask.id})`);
-
         const arrow = document.createElementNS(SVG_NS, "path");
         arrow.setAttribute("class", "edge edge-built-with edge-arrow concealed");
         if (color) arrow.style.stroke = color;
         this.svg.appendChild(arrow);
-        line.reveal = reveal;
         line.arrow = arrow;
       }
       this.edgeEls.push(line);
-    });
+    }
   }
 
   private buildNodes() {
@@ -796,7 +783,7 @@ export class GraphCanvas {
         if (isAttrEdge) arrivalMs.set(to, Math.min(arrivalMs.get(to) ?? Infinity, this.drawIn(line)));
       } else if (!visible && this.shownEdges.has(el)) {
         this.shownEdges.delete(el);
-        (line.reveal ?? el).getAnimations().forEach((a) => a.cancel());
+        el.getAnimations().forEach((a) => a.cancel());
       }
     }
 
@@ -846,11 +833,13 @@ export class GraphCanvas {
   /** Animates a line drawing itself from its start; returns how long that takes. */
   private drawIn(line: EdgeEl): number {
     if (reducedMotion) return 0;
-    const el = line.reveal ?? line.el;
+    const el = line.el;
     const len = el.getTotalLength();
     const ms = Math.min(900, Math.max(350, len * 0.9));
-    el.style.strokeDasharray = `${len} ${len}`;
-    const anim = el.animate([{ strokeDashoffset: len }, { strokeDashoffset: 0 }], {
+    // Dashed «use» lines keep their dashes while drawing in (dashedDrawIn).
+    const { array, run } = line.arrow ? dashedDrawIn(len, USE_DASH, USE_GAP) : { array: `${len} ${len}`, run: len };
+    el.style.strokeDasharray = array;
+    const anim = el.animate([{ strokeDashoffset: run }, { strokeDashoffset: 0 }], {
       duration: ms,
       easing: "cubic-bezier(0.3, 0.7, 0.4, 1)",
     });
@@ -1237,11 +1226,10 @@ export class GraphCanvas {
     });
   }
 
-  /** Sets a skill line's route (and its reveal copy, see EdgeEl) and puts
+  /** Sets a skill line's route and puts
    * its «use» arrowhead at the skill end: open, pointing back into "you". */
   private setSkillPath(line: EdgeEl, d: string, exitX: number, exitY: number) {
     line.el.setAttribute("d", d);
-    line.reveal?.setAttribute("d", d);
     line.arrow?.setAttribute(
       "d",
       `M ${exitX + ARROW_LEN} ${exitY - ARROW_HALF} L ${exitX} ${exitY} L ${exitX + ARROW_LEN} ${exitY + ARROW_HALF}`,
