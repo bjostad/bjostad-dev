@@ -31,10 +31,32 @@ const SKILL_CATEGORY: Record<string, SkillCategory> = {
   Vite: "tool",
   OpenAI: "tool",
   Gemini: "tool",
-  "Google App Script": "tool",
+  "Google Apps Script": "tool",
   "Google Sheets API": "tool",
   Konva: "framework",
 };
+
+/**
+ * Top-to-bottom order of skills within their category on your card. Skills
+ * not listed here follow the listed ones in their category, arranged to
+ * keep their lines from crossing.
+ */
+const SKILL_ORDER = [
+  // Languages
+  "Java",
+  "Python",
+  "Dart",
+  "TypeScript",
+  "JavaScript",
+  // Frameworks
+  "Spring Boot",
+  "Flutter",
+  "FastAPI",
+  "Express",
+  "React",
+  "React Native",
+  "Konva",
+];
 
 /**
  * Skills worth listing on your card even when only one project uses them —
@@ -110,7 +132,7 @@ const projects: ProjectSeed[] = [
     id: "staryteller",
     title: "staryteller.com",
     subtitle: "AI bedtime story app",
-    cardHighlights: ["LLM streaming over SSE", "Offline-first LWW sync", "Skia GPU canvas rendering"],
+    cardHighlights: ["LLM streaming over SSE", "Local-first on-device storage", "Skia GPU canvas rendering"],
     summary:
       "A mobile app that writes personalized bedtime stories with an LLM and adds each one as a star in a growing constellation to explore.",
     highlights: [
@@ -381,7 +403,7 @@ const projects: ProjectSeed[] = [
           "Sign-in, recommendations, genre listing, and playlist creation keep the same interface but return tempo-matched mock tracks (within ±5 BPM) with simulated latency, so the UI code didn't have to know.",
       },
     ],
-    tags: ["TypeScript", "React", "Vite", "NodeJS", "Express"],
+    tags: ["JavaScript", "React", "Vite", "NodeJS", "Express"],
     demoUrl: "https://pacemakr.com",
   },
   {
@@ -417,7 +439,7 @@ const projects: ProjectSeed[] = [
           "OAuth 2.0 handles Yahoo sign-in, and deeply nested responses (arrays that shift into objects) are flattened into pivot-friendly rows. Backfills bypass the limiter, so they're throttled by date range.",
       },
     ],
-    tags: ["JavaScript", "React", "Vite", "Recharts", "Google App Script"],
+    tags: ["JavaScript", "React", "Vite", "Recharts", "Google Apps Script"],
     screenshots: [
       { src: "/screenshots/escapistball-overview.webp", caption: "League Overview" },
       { src: "/screenshots/escapistball-profiles.webp", caption: "Team Profiles" },
@@ -527,7 +549,7 @@ const lenses: LensSeed[] = [
     id: "data",
     label: "Data",
     blurb: "Rating models, analytics dashboards, and physics-based forecasting.",
-    skills: ["Postgres", "Firebase", "Python", "Google Sheets API", "Google App Script"],
+    skills: ["Postgres", "Firebase", "Python", "Google Sheets API", "Google Apps Script"],
     projects: ["escapistball", "9t9-club", "freyr-farm"],
   },
 ];
@@ -562,7 +584,8 @@ function buildAttributesAndEdges(): { attributes: GraphAttribute[]; edges: Graph
   for (const [skill, projectIds] of counts) {
     if (projectIds.length < 2 && !FEATURED_SKILLS.has(skill)) continue; // stays a tag, not an attribute
     const id = `skill-${slug(skill)}`;
-    attributes.push({ id, label: skill, category: SKILL_CATEGORY[skill] });
+    const order = SKILL_ORDER.indexOf(skill);
+    attributes.push({ id, label: skill, category: SKILL_CATEGORY[skill], rank: order === -1 ? undefined : order });
     for (const pid of projectIds) {
       edges.push({ from: id, to: pid, kind: "built-with" });
     }

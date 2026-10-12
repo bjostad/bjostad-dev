@@ -130,8 +130,9 @@ export function computeInitialLayout(data: GraphData): Map<string, LayoutNode> {
  * place on the node) to cut down how much its lines cross — the
  * ER-diagram equivalent of the classic layered-graph crossing-reduction
  * trick. Rows are grouped by skill type first (CATEGORY_ORDER); within a
- * type, each skill sits at the row closest to the average position of the
- * projects it connects to.
+ * type, ranked skills (SKILL_ORDER in graph.ts) come first in that order,
+ * and each unranked one sits at the row closest to the average position of
+ * the projects it connects to.
  *
  * Project order itself is left alone: it's the order projects are listed
  * in graph.ts, which is a deliberate ranking (strongest on the left).
@@ -160,9 +161,12 @@ export function reduceAttributeProjectCrossings(data: GraphData) {
     return idx?.length ? idx.reduce((s, i) => s + i, 0) / idx.length : originalIndex.get(id)!;
   };
   const categoryRank = (a: GraphAttribute) => CATEGORY_ORDER.indexOf(a.category ?? "tool");
+  const rank = (a: GraphAttribute) => a.rank ?? Infinity;
 
   you.attributes = [...you.attributes].sort(
-    (a, b) => categoryRank(a) - categoryRank(b) || barycenter(a.id) - barycenter(b.id),
+    (a, b) =>
+      categoryRank(a) - categoryRank(b) ||
+      (rank(a) === rank(b) ? barycenter(a.id) - barycenter(b.id) : rank(a) - rank(b)),
   );
 }
 

@@ -30,6 +30,8 @@ export interface GraphAttribute {
   id: string;
   label: string;
   category?: SkillCategory;
+  /** Fixed position within its category (lower first); unranked skills follow, placed to cut line crossings. */
+  rank?: number;
 }
 
 /** A highlight is plain text, or a scannable headline with a one-line point
