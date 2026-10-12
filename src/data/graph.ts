@@ -67,7 +67,7 @@ interface ProjectSeed {
   summary?: string;
   highlights?: string[];
   /** Shown in the project's detail section — label them e.g. "Live site", "Source". */
-  links?: { label: string; url: string }[];
+  links?: { label: string; url: string; stamp?: string }[];
   /** A URL to embed as a live demo in the detail section. Only works for
    * sites that allow being framed; otherwise use `screenshots` instead. */
   demoUrl?: string;
@@ -171,16 +171,29 @@ const projects: ProjectSeed[] = [
     id: "lukk-boksen",
     title: "Lukk Boksen",
     subtitle: "Multiplayer mobile dice game",
-    cardHighlights: ["Serverless Sheets backend", "Forge2D rigid-body physics", "Subset-sum backtracking"],
+    cardHighlights: ["Live on web, Android early access", "Firestore real-time multiplayer", "Forge2D rigid-body physics"],
     summary:
-      "A Flutter take on the classic dice game Shut the Box, with physics-driven dice, shake-to-roll, and asynchronous multiplayer that runs without any server.",
+      "A Flutter take on the classic dice game Shut the Box, with physics-driven dice, shake-to-roll, and asynchronous multiplayer. Released as a web game at lukkboksen.bjostad.dev, with the Android app in early access on Google Play.",
     highlights: [
-      "Zero-infrastructure backend: Drive's files API serves as lobby and service discovery, and each game is a spreadsheet with game-state, participant, and append-only turn-log tabs.",
-      "Least-privilege OAuth (drive.file scope) through a custom http.BaseClient that injects bearer tokens into googleapis requests; Drive ACLs grant opponents write access.",
-      "Flame + Forge2D rigid-body dice triggered by accelerometer shake detection (acceleration-magnitude threshold), with settle detection before the turn resolves.",
-      "Bust detection solves subset-sum with recursive backtracking; the last player to view the results deletes the shared game file, a distributed cleanup with no server.",
+      "Real-time asynchronous multiplayer on Firebase's free Spark plan: Google sign-in exchanged for a Firebase credential, and games, participants, and turns stored in Cloud Firestore with live listeners instead of polling. It moved here from a Google Sheets backend once it needed instant updates.",
+      "Security rules do the authorization: players are identified by verified email, a game and its turn log are readable and writable only by its participants, and creator and invite list are immutable. Rules are covered by tests run against the Firebase Emulator Suite.",
+      "Flame + Forge2D rigid-body dice triggered by accelerometer shake detection, with settle detection before the turn resolves; each roll is recorded so the busted and win screens can replay the dice and the tiles shut.",
+      "Two multiplayer modes (round by round, and completion mode at your own pace) with sudden-death tiebreakers, a per-game leaderboard, and a glow on the game card when it's your turn.",
+      "Distributed cleanup with no server: once every player has viewed the results, the shared game is deleted and a summary is saved to each player's own archive.",
+      "Shipped as a product: signed Android release builds, a Flutter web build served at /game, and a landing page with a playable demo plus hosted privacy policy, terms, and account-deletion pages on Firebase Hosting under a strict CSP.",
     ],
-    tags: ["Dart", "Flutter", "Riverpod", "Forge2D", "Google Sheets API", "Google Drive API"],
+    tags: ["Dart", "Flutter", "Riverpod", "Flame", "Forge2D", "Firebase", "Cloud Firestore"],
+    links: [
+      { label: "Play online", url: "https://lukkboksen.bjostad.dev/game" },
+      // Early access only, so no public listing yet; the stamp comes off once the app is approved.
+      {
+        label: "Google Play",
+        url: "https://play.google.com/store/apps/details?id=dev.bjostad.lukkboksen",
+        stamp: "Early access only",
+      },
+    ],
+    // Framing needs the landing page's CSP frame-ancestors to allow bjostad.dev (see lukk-boksen firebase.json).
+    demoUrl: "https://lukkboksen.bjostad.dev",
   },
   {
     id: "pacemakr",

@@ -5,6 +5,8 @@ export type EdgeKind = "built-with" | "worked-at" | "related";
 export interface GraphLink {
   label: string;
   url: string;
+  /** Short note stamped over the link's button, e.g. "Early access only". */
+  stamp?: string;
 }
 
 export interface Screenshot {

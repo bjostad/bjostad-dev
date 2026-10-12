@@ -294,6 +294,34 @@ a.btn.btn-doc {
   stroke-linecap: round;
 }
 
+/* A button with a rubber-stamp note over its corner ("Early access only"). The
+   stamp ignores the pointer so the button underneath still works. */
+.btn-stamped {
+  position: relative;
+  display: inline-block;
+}
+
+.btn-stamp {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: calc(100% - 8px);
+  transform: translate(-50%, -50%) rotate(-5deg);
+  pointer-events: none;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #ffb454;
+  background: rgba(7, 11, 20, 0.88);
+  border: 1.5px solid #ffb454;
+  border-radius: 3px;
+  padding: 1px 3px;
+}
+
 /* ---------- Project detail section ---------- */
 
 .project-detail {

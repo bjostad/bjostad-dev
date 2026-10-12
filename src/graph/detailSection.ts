@@ -224,7 +224,10 @@ function header(node: GraphNode, tagline: string | undefined, actions = ""): str
 
 function renderProject(node: GraphNode): string {
   const links = (node.links ?? [])
-    .map((l) => `<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`)
+    .map((l) => {
+      const btn = `<a class="btn" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`;
+      return l.stamp ? `<span class="btn-stamped">${btn}<span class="btn-stamp" aria-hidden="true">${esc(l.stamp)}</span></span>` : btn;
+    })
     .join("");
 
   // No demo or screenshots: no media area at all, rather than an empty frame.
