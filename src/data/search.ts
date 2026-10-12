@@ -1,4 +1,4 @@
-import type { Focus, GraphData } from "./types";
+import type { Focus, GraphData, Highlight } from "./types";
 
 /**
  * Header search: finds the skills and projects that mention a term, the
@@ -19,10 +19,14 @@ export function searchFocus(data: GraphData, query: string): Focus | null {
     .filter((n) => n.type === "project")
     .filter((p) => {
       const names = [p.title, ...(p.tags ?? [])];
-      const prose = [p.subtitle, p.summary, ...(p.cardHighlights ?? []), ...(p.highlights ?? [])];
+      const prose = [p.subtitle, p.summary, ...(p.cardHighlights ?? []), ...(p.highlights ?? []).map(highlightText)];
       return names.some((s) => s.toLowerCase().includes(q)) || prose.some((s) => s && wordStart.test(s));
     })
     .map((p) => p.id);
 
   return { label: "Match", projects, skills, ranked: false };
+}
+
+function highlightText(h: Highlight): string {
+  return typeof h === "string" ? h : [h.title, h.point, h.detail].filter(Boolean).join(" ");
 }

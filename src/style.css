@@ -646,6 +646,93 @@ a.btn.btn-doc {
   margin-top: 10px;
 }
 
+/* A structured highlight (highlights.ts): a bold headline and its one-line
+   point to scan, with the full story behind a toggle. The chevron sits where
+   the list bullet would. */
+li.point {
+  list-style: none;
+  position: relative;
+}
+
+.detail-points li.point + li.point {
+  margin-top: 16px;
+}
+
+.point-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+.point-cue {
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+.point summary {
+  display: block;
+  cursor: pointer;
+  list-style: none;
+}
+
+.point summary::-webkit-details-marker {
+  display: none;
+}
+
+.point summary::before {
+  content: "";
+  position: absolute;
+  left: -18px;
+  top: 0.45em;
+  border: 5px solid transparent;
+  border-left-color: var(--accent-secondary);
+  transform-origin: 2.5px 5px;
+  transition: transform 0.15s ease;
+}
+
+.point details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.point summary:hover .point-title {
+  color: var(--accent-primary);
+}
+
+.point summary:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+.point-cue::after {
+  content: "More";
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-secondary);
+}
+
+.point details[open] .point-cue::after {
+  content: "Less";
+}
+
+.point-detail {
+  margin: 8px 0 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--line-edge);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .point summary::before {
+    transition: none;
+  }
+}
+
 .detail-side .node-highlights {
   border-top: none;
   margin: 0;

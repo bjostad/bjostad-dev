@@ -1,5 +1,6 @@
 import type { Focus, GraphData } from "../data/types";
 import { statusLineHtml } from "./canvas";
+import { renderHighlightItems } from "./highlights";
 
 /** With a focus, its projects move to the top in its order, marked, and
  * the rest follow in their usual order. */
@@ -38,7 +39,7 @@ export function renderListView(root: HTMLElement, data: GraphData, focus: Focus 
         ${focus && rank.has(p.id) ? `<span class="list-rank">${focus.ranked ? `#${rank.get(p.id)! + 1} ` : ""}${esc(focus.label)}</span>` : ""}
         <strong>${esc(p.title)}</strong>${p.subtitle ? ` — ${esc(p.subtitle)}` : ""}
         ${p.summary ? `<p>${esc(p.summary)}</p>` : ""}
-        ${p.highlights?.length ? `<ul class="list-highlights">${p.highlights.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>` : ""}
+        ${p.highlights?.length ? `<ul class="list-highlights">${renderHighlightItems(p.highlights)}</ul>` : ""}
         ${p.tags?.length ? `<p class="list-tags">${p.tags.map(esc).join(", ")}</p>` : ""}
         ${(p.links ?? []).map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>${l.stamp ? ` (${esc(l.stamp.toLowerCase())})` : ""}`).join(" · ")}
       </li>`).join("")));

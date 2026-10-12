@@ -1,4 +1,5 @@
 import type { GraphNode } from "../data/types";
+import { renderHighlightItems } from "./highlights";
 
 export class DetailPanel {
   private el: HTMLElement;
@@ -47,7 +48,7 @@ export class DetailPanel {
     if (node.subtitle) parts.push(`<p class="detail-subtitle">${esc(node.subtitle)}</p>`);
     if (node.summary) parts.push(`<p class="detail-summary">${esc(node.summary)}</p>`);
     if (node.highlights?.length) {
-      parts.push(`<ul class="detail-highlights">${node.highlights.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>`);
+      parts.push(`<ul class="detail-highlights">${renderHighlightItems(node.highlights)}</ul>`);
     }
 
     // A field whose label matches a link's label (e.g. "email" / "Email")

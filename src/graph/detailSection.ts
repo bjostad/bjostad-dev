@@ -1,5 +1,6 @@
 import type { GraphNode } from "../data/types";
 import { dashedDrawIn } from "./dashes";
+import { renderHighlightItems } from "./highlights";
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 const DURATION_MS = 1000;
@@ -247,7 +248,7 @@ function renderProject(node: GraphNode): string {
   }
 
   const highlights = node.highlights?.length
-    ? `<h3>Engineering highlights</h3><ul class="detail-points">${node.highlights.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>`
+    ? `<h3>Engineering highlights</h3><ul class="detail-points">${renderHighlightItems(node.highlights)}</ul>`
     : "";
   const main =
     node.summary || highlights

@@ -1,4 +1,4 @@
-import type { GraphAttribute, GraphData, GraphEdge, GraphLens, GraphNode, Screenshot, SkillCategory } from "./types";
+import type { GraphAttribute, GraphData, GraphEdge, GraphLens, GraphNode, Highlight, Screenshot, SkillCategory } from "./types";
 
 /**
  * ---------------------------------------------------------------------
@@ -65,7 +65,8 @@ interface ProjectSeed {
   /** Up to ~3 short phrases shown on the graph card, under the tagline. */
   cardHighlights?: string[];
   summary?: string;
-  highlights?: string[];
+  /** Plain strings, or { title, point, detail } for a scannable headline with more behind an expander. */
+  highlights?: Highlight[];
   /** Shown in the project's detail section — label them e.g. "Live site", "Source". */
   links?: { label: string; url: string; stamp?: string }[];
   /** A URL to embed as a live demo in the detail section. Only works for
@@ -85,10 +86,23 @@ const projects: ProjectSeed[] = [
     summary:
       "An autonomous agentic AI platform, which I co-founded and led as lead engineer (Oct 2023 – Jan 2026), handling 24/7 customer engagement and lead qualification for HVAC, plumbing, and electrical businesses.",
     highlights: [
-      "Designed, architected, and deployed agents that engaged customers around the clock across SMS, voice, web chat, and Facebook Messenger.",
-      "Multi-channel conversational logic qualified inbound leads and automated intake and troubleshooting, reducing clients' administrative overhead by 40%.",
-      "Industry-specific onboarding templates and knowledge bases for electricians and plumbers cut new-client deployment time by over 50%.",
-      "Led a team of three engineers building on AWS (EC2, RDS, S3, Route 53, CloudFormation) with Java, Python, JavaScript, React, and LangChain.",
+      {
+        title: "Cut clients' administrative overhead 40% with multi-channel AI agents",
+        point: "Agents qualified leads and handled intake and troubleshooting 24/7 across SMS, voice, web chat, and Facebook Messenger.",
+        detail:
+          "I designed, architected, and deployed the agent platform for HVAC, plumbing, and electrical businesses. Multi-channel conversational logic qualified inbound leads and automated intake and troubleshooting, taking that work off owners' plates around the clock.",
+      },
+      {
+        title: "Cut new-client deployment time by over 50% with industry-specific onboarding templates",
+        point: "Prebuilt templates and knowledge bases for electricians and plumbers gave every new client a working starting point.",
+        detail:
+          "Onboarding started from trade-specific templates and knowledge bases rather than a blank configuration, then layered on each business's own details.",
+      },
+      {
+        title: "Co-founded the company and led a team of 3 engineers for over 2 years",
+        point: "Owned architecture and delivery as lead engineer from October 2023 to January 2026.",
+        detail: "Built on AWS (EC2, RDS, S3, Route 53, CloudFormation) with Java, Python, JavaScript, React, and LangChain.",
+      },
     ],
     tags: ["TypeScript", "React", "Python", "Java", "Spring Boot", "Langchain", "NodeJS", "FastAPI", "Postgres"],
   },
@@ -100,10 +114,42 @@ const projects: ProjectSeed[] = [
     summary:
       "A mobile app that writes personalized bedtime stories with an LLM and adds each one as a star in a growing constellation to explore.",
     highlights: [
-      "Spring Boot 3 relays OpenAI's streaming completions to the React Native client over Server-Sent Events (SseEmitter to react-native-sse), gated by a Moderation API pre-check and atomic per-day quota counters.",
-      "Deterministic layout: a SHA-256 hash of each story's text maps to 2D coordinates, then an iterative repulsion pass resolves collisions between stars.",
-      "GPU-rendered Skia canvas driven by Reanimated worklets for gestures and off-screen edge indicators, plus a headless off-screen Skia surface for full-resolution image export.",
-      "Offline-first WatermelonDB (SQLite over JSI) with client-generated UUIDs and last-write-wins sync to PostgreSQL; containerized on Cloud Run with Cloud SQL, Secret Manager, and Cloud Build CI/CD.",
+      {
+        title: "Showed the first words of each story ~7x sooner by streaming tokens over SSE",
+        point: "Readers start reading in ~0.5 s instead of waiting ~3.6 s for a full 200-word story to generate.",
+        detail:
+          "Spring Boot relays OpenAI's streaming completions to the React Native client through an SseEmitter on a worker pool, and the app renders tokens as they arrive via react-native-sse. Wait times are estimates at gpt-4o-mini's typical ~90 tokens/s and ~0.5 s to first token: ~1.4 s, ~2.1 s, and ~3.6 s for the 50, 100, and 200-word lengths.",
+      },
+      {
+        title: "Spent $0 in LLM tokens on rejected requests by checking plan limits and moderation first",
+        point: "Over-quota, over-limit, and flagged prompts are refused before any paid completion call is made.",
+        detail:
+          "The API enforces 4 subscription tiers server-side, from Free (1 story a day, 1 crew member, short stories only) to Max (unlimited stories, up to 99 crew members), then screens the theme with OpenAI's free Moderation API. Only requests that pass both reach the completion endpoint, and the prompt contract caps story bodies at 50, 100, or 200 words to bound the cost of each one.",
+      },
+      {
+        title: "Placed every story on the map from its SHA-256 hash, with 0 overlapping stars",
+        point: "Each star's position comes from the story's own text, and a repulsion pass guarantees stars never collide.",
+        detail:
+          "The first 64 bits of the hash map to x/y on a 5,000 × 5,000 sky. Hashing alone would give a 50% chance of two stars landing within 100 units of each other by just 34 stories, and ~78% by 50 (Monte Carlo), so an iterative repulsion pass nudges each new star until it clears every neighbor.",
+      },
+      {
+        title: "Exported a 25-megapixel galaxy image, ~10x a phone screen, from an off-screen Skia surface",
+        point: "Shareable prints render headlessly at full resolution instead of screenshotting the viewport.",
+        detail:
+          "The export draws the background, 80 ambient bodies, and every story star with a blur glow onto a 5,000 × 5,000 Skia surface (25 MP vs ~2.6 MP for a 1080 × 2400 screen), encodes it to PNG, and hands it to the native share sheet.",
+      },
+      {
+        title: "Animated 80 celestial bodies with 0 React re-renders per frame using Reanimated worklets",
+        point: "Motion, pan, zoom, and off-screen star indicators run on the UI thread and draw straight to a GPU Skia canvas.",
+        detail:
+          "Shared and derived values feed Skia directly, so frames never go through React reconciliation. Off-screen indicators compute each hidden star's bearing with atan2 in an animated reaction and pin an arrow to the screen edge.",
+      },
+      {
+        title: "Opened the star map with 0 network requests by storing stories on-device",
+        point: "Stories live in WatermelonDB (SQLite over JSI), so the map loads instantly, even offline.",
+        detail:
+          "The constellation screen observes the local database and re-renders when a story is added. Stories carry client-generated UUIDs, and the backend already has a last-write-wins sync endpoint for upcoming multi-device sync. The API runs as a container on Cloud Run, which scales to zero when idle, with Cloud SQL, Secret Manager, and Cloud Build CI/CD.",
+      },
     ],
     tags: ["TypeScript", "React Native", "Java", "Spring Boot", "Postgres", "OpenAI", "GCP"],
   },
@@ -115,10 +161,36 @@ const projects: ProjectSeed[] = [
     summary:
       "A multi-sport platform for high school and college programs that turns combine results into video-game-style 1–99 player ratings, alongside an interactive playbook and team tools.",
     highlights: [
-      "Rating engine normalizes each metric against a configurable floor, ceiling, and direction, then maps it through a logistic S-curve (k = 6, x₀ = 0.35) into weighted 1–99 pillar and overall ratings.",
-      "Konva / React-Konva scene graph for the playbook editor, with custom hit-testing and snap-to-line-of-scrimmage geometry rather than DOM rendering.",
-      "Firestore data model with real-time onSnapshot listeners and role-based access (head coach, assistant, player, admin) driving live leaderboard recalculation.",
-      "Two-way Google Sheets v4 sync over scoped OAuth (batch imports, batchUpdate exports), plus structured Gemini (@google/genai) prompts over evaluation data.",
+      {
+        title: "Mapped raw combine results to 1–99 ratings with a tuned logistic curve",
+        point: "A mid-range result rates 71 instead of a linear 50, and gains near the ceiling move the rating less.",
+        detail:
+          "Each metric is normalized against its own floor, ceiling, and direction (lower is better for a 40-yard dash, higher for a vertical jump), then passed through a sigmoid with k = 6 and x₀ = 0.35. A result a quarter of the way up the range rates 36 instead of 26; 90+ starts at 72% of the range, so the top 28% of results share the 90s. Pillar and overall ratings are weighted averages of these.",
+      },
+      {
+        title: "Made spreadsheet imports idempotent: re-running one creates 0 duplicate stats",
+        point: "Each stat's ID is built from player, metric, and date, so importing the same sheet twice overwrites instead of duplicating.",
+        detail:
+          "Rows already marked Imported are skipped, and stats are committed in Firestore write batches, so a 30-player, 10-metric evaluation day (300 stats) lands in 1 commit instead of 300 round trips.",
+      },
+      {
+        title: "Exported a full roster to Google Sheets in 1 API request",
+        point: "One bulk values update instead of a write per player keeps exports well inside Sheets' 60 writes-per-minute user quota.",
+        detail:
+          "Coaches grant a scoped Google OAuth token, and the app creates and formats eval-import, eval-archive, and Roster tabs with batchUpdate, then imports edited sheets back into Firestore. Structured Gemini (@google/genai) prompts turn the same evaluation data into scouting summaries.",
+      },
+      {
+        title: "Enforced 5 roles in Firestore security rules, with leaderboards updating live",
+        point: "Admins, coaches, assistant coaches, managers, and players each get only the reads and writes their role allows, checked by the database itself.",
+        detail:
+          "onSnapshot listeners push new evaluations to leaderboards, player lockers, and the clubhouse the moment a coach records them, with no polling or refresh. The rules also validate document shapes, team membership, and IDs (alphanumeric, at most 128 characters).",
+      },
+      {
+        title: "Built the playbook editor on a Konva canvas with snap-to-scrimmage geometry",
+        point: "Players snap to the line of scrimmage within 3 yards and align to teammates within 1 yard as they're dragged.",
+        detail:
+          "A canvas scene graph rather than DOM nodes, at 16 px per yard (853 px across a 53⅓-yard field), with distance-based hit testing for drawing and editing routes.",
+      },
     ],
     tags: ["TypeScript", "React", "Firebase", "Konva", "D3.js", "Google Sheets API", "Gemini"],
     screenshots: [
@@ -138,10 +210,42 @@ const projects: ProjectSeed[] = [
     summary:
       "A store-agnostic wishlist and gift registry app: add items from any retailer, organize them into lists and event registries, and share them with friends and family.",
     highlights: [
-      "Multi-tier scraper: server-side Cheerio parsing of JSON-LD (Schema.org Product) and Open Graph metadata, retailer-specific extraction rules, browser-header emulation, and failover to the Microlink API when a store blocks the direct fetch.",
-      "Buyer identity stored as a SHA-256 hash, with server-side date logic that strips purchase state from the owner's API responses until the day after their occasion.",
-      "Relational PostgreSQL schema via Prisma with cascading relations across lists, items, categories, and shares; UUID tokens grant access without an account.",
-      "Non-blocking one-way sync into the user's own Google Drive and Sheets (Drive v3, Sheets v4) over Google OAuth.",
+      {
+        title: "Added items from any store with a 5-tier scraping fallback that never returns an error",
+        point: "Every product link yields at least a title and icon, even when the retailer blocks scrapers.",
+        detail:
+          "1) Shopify stores answer from their public /products/*.json endpoint, skipping HTML entirely. 2) Otherwise the server fetches the page with full browser headers and parses JSON-LD (Schema.org Product) and Open Graph tags with Cheerio. 3) Captchas and bot walls are detected, and Amazon links fall back to the ASIN and URL slug. 4) The Microlink API is tried only after a direct fetch fails, conserving its free quota. 5) Last resort: the URL slug and the site's favicon.",
+      },
+      {
+        title: "Protected gift surprises by stripping 8 purchase fields from the owner's API responses",
+        point: "Hiding happens on the server until the day after the occasion, so a surprise can't leak through the browser's network tab.",
+        detail:
+          "Purchase status and date, buyer name, email, message, tracking, and receipt link and text are nulled per request, based on the registry's event date or the owner's next important date, then revealed automatically the day after, when purchased items also archive themselves off the list.",
+      },
+      {
+        title: "Made every saved product link monetizable across 6 affiliate programs and 50,000+ merchants",
+        point: "Retail links are rewritten server-side to the matching program, with a universal network as the fallback for any other store.",
+        detail:
+          "Direct programs cover Amazon (20 regional domains), eBay (8), Walmart, Target, Best Buy, and Etsy via Awin, and Amazon links are scrubbed of third-party referral tags first. Anything else falls back to Skimlinks or Sovrn, which together reach 50,000+ retailers. Programs live in the database behind admin endpoints, so adding or pausing one takes 0 deploys.",
+      },
+      {
+        title: "Shrank uploaded photos ~98% with a server-side image pipeline",
+        point: "A typical 12-megapixel phone photo (~3.5 MB) is stored as an ~70 KB WebP, so lists load fast on shared hosting.",
+        detail:
+          "Sharp auto-rotates by EXIF, resizes item images to fit 800 px and avatars to 500 px without ever upscaling, and re-encodes as WebP at quality 85–90. Uploads are capped at 2–50 MB by type. Size figures are typical estimates for a 4032 × 3024 JPEG.",
+      },
+      {
+        title: "Ran the full production stack for $0 a month",
+        point: "The React front end is served from Cloudflare Pages' global CDN, and the Express API and PostgreSQL run on existing shared hosting.",
+        detail:
+          "Splitting static hosting from the API put the front end on Cloudflare's edge with DDoS protection and Git-triggered deploys, while the 93-endpoint API runs under Phusion Passenger with Prisma migrations applied at each release.",
+      },
+      {
+        title: "Gave every list 3 privacy levels with share links carrying 122 bits of randomness",
+        point: "Lists are private, shared (link plus sign-in), or public, and UUID tokens make links effectively unguessable.",
+        detail:
+          "Access rules are enforced per request on the server. Under them sits a PostgreSQL schema modeled with Prisma: 12 cascading relations, so deleting a list cleans up every dependent row in one statement, and composite unique keys such as (listId, sharedWithEmail) that stop duplicate shares at the database. Lists can also back up one way to the user's own Google Drive, run in the browser with their own OAuth token, so Gebo stores no Google credentials.",
+      },
     ],
     tags: ["TypeScript", "React", "NodeJS", "Express", "Postgres", "Prisma", "Google Sheets API"],
     demoUrl: "https://gebo.ing",
@@ -154,11 +258,36 @@ const projects: ProjectSeed[] = [
     summary:
       "A multi-tenant smart irrigation platform that replaces fixed sprinkler timers with watering decisions computed from soil physics, crop needs, and local weather forecasts, then drives the valves directly.",
     highlights: [
-      "Java 21 / Spring Boot 3.3 backend split into core, api, weather, and hardware modules with one-way dependencies; stateless JWT auth and organization-scoped multi-tenancy with OWNER / MEMBER / VIEWER roles over PostgreSQL 16 and Flyway migrations.",
-      "Watering engine models root-zone volume and available water capacity per soil texture, projects moisture with FAO-56 Penman-Monteith crop evapotranspiration (ET₀ × Kc) and 36-hour NWS rainfall infiltration, and skips cycles the forecast will cover.",
-      "Every recommendation is stored as a step-by-step reasoning trail (current moisture, projected ET, effective rain, deficit in gallons, runtime from summed emitter flow), so each automated decision is auditable.",
-      "Hardware-agnostic relay layer over REST and MQTT for ESP32, Shelly, and Raspberry Pi: each valve command carries a max runtime the device enforces locally, zones on a shared line are mutually excluded, and out-of-range probe readings fall back to ET-only modeling.",
-      "To-scale react-konva bed designer with emitter coverage circles, and a per-plant heatmap that maps each crop's deviation from its moisture band through piecewise RGB interpolation.",
+      {
+        title: "Chose each zone's runtime by scoring 180 candidate runtimes against every bed on the valve",
+        point: "One valve often feeds beds with different needs, so the engine picks the runtime with the lowest combined error, penalizing underwatering 4x and overwatering 5x.",
+        detail:
+          "For each minute from 1 to 180, it projects every bed's final moisture and sums an asymmetric quadratic cost (1x inside the target band, 4x below it, 5x above it). Beds that end up outside their band get a recorded compromise note explaining the trade-off against their neighbors.",
+      },
+      {
+        title: "Skipped watering whenever forecast rain of 0.25 in or more will cover the loss",
+        point: "A rain guard compares infiltrated rain with projected evapotranspiration for every bed before recommending a run.",
+        detail:
+          "Rain is credited at 85% and capped by soil infiltration capacity (0.20–0.50 in/hr across 7 soil textures, over at most 12 hours), then weighed against crop ET from a simplified Penman-Monteith/Hargreaves model over a 36-hour lookahead. When every thirsty bed is covered, the zone is skipped and its pending recommendations are withdrawn.",
+      },
+      {
+        title: "Recorded an auditable reasoning trail for 100% of watering decisions",
+        point: "Every recommendation stores current moisture, projected ET, effective rain, deficit in gallons, and the runtime math behind it.",
+        detail:
+          "Deficits convert to gallons from root-zone volume (7.48 gal per cubic foot) and to minutes from the zone's summed emitter flow. Every bed is re-evaluated hourly, a nightly 2 AM job refits each bed's microclimate coefficients (solar 35%, temperature 30%, wind 20%, humidity 15%, bounded to 0.5–2x), and a newer recommendation expires the older pending one for its zone.",
+      },
+      {
+        title: "Drove ESP32, Shelly, and Raspberry Pi valves through 1 hardware-agnostic command layer",
+        point: "Every valve command carries a max runtime the device enforces locally, so a dropped connection can never leave water running.",
+        detail:
+          "Commands go out over REST or MQTT behind a single gateway interface, zones on a shared supply line are mutually excluded, and out-of-range probe readings fall back to ET-only modeling. Manual test runs are clamped to 2–60 s by a server-side watchdog, and one emergency-stop call closes every open valve on a property.",
+      },
+      {
+        title: "Split the backend into 3 Maven modules with one-way dependencies",
+        point: "The decision engine, web API, and shared domain model build separately, and the engine runs as its own Spring Boot application.",
+        detail:
+          "Java 21 and Spring Boot 3 over PostgreSQL 16, with H2 powering the in-browser demo; organization-scoped multi-tenancy with OWNER, MEMBER, and VIEWER roles. The React front end adds a to-scale react-konva bed designer and a per-plant moisture heatmap.",
+      },
     ],
     tags: ["TypeScript", "React", "Vite", "Konva", "Java", "Spring Boot", "Postgres", "MQTT"],
     screenshots: [
@@ -175,12 +304,42 @@ const projects: ProjectSeed[] = [
     summary:
       "A Flutter take on the classic dice game Shut the Box, with physics-driven dice, shake-to-roll, and asynchronous multiplayer. Released as a web game at lukkboksen.bjostad.dev, with the Android app in early access on Google Play.",
     highlights: [
-      "Real-time asynchronous multiplayer on Firebase's free Spark plan: Google sign-in exchanged for a Firebase credential, and games, participants, and turns stored in Cloud Firestore with live listeners instead of polling. It moved here from a Google Sheets backend once it needed instant updates.",
-      "Security rules do the authorization: players are identified by verified email, a game and its turn log are readable and writable only by its participants, and creator and invite list are immutable. Rules are covered by tests run against the Firebase Emulator Suite.",
-      "Flame + Forge2D rigid-body dice triggered by accelerometer shake detection, with settle detection before the turn resolves; each roll is recorded so the busted and win screens can replay the dice and the tiles shut.",
-      "Two multiplayer modes (round by round, and completion mode at your own pace) with sudden-death tiebreakers, a per-game leaderboard, and a glow on the game card when it's your turn.",
-      "Distributed cleanup with no server: once every player has viewed the results, the shared game is deleted and a summary is saved to each player's own archive.",
-      "Shipped as a product: signed Android release builds, a Flutter web build served at /game, and a landing page with a playable demo plus hosted privacy policy, terms, and account-deletion pages on Firebase Hosting under a strict CSP.",
+      {
+        title: "Cut database writes per turn 47% by committing each turn as one atomic batch",
+        point: "Nearly doubles the games the free tier can host each day (~61 to ~113), and opponents never see a half-applied move.",
+        detail:
+          "The turn, every player's row, and the next game state commit together in one Firestore batch, so opponents never see a half-applied move. A Monte Carlo model of 200k simulated turns averages 6.4 rolls per turn: 6 writes per turn instead of ~11.4 if each roll were saved as it landed. Over a 4-player game that's ~117 writes and ~441 listener reads instead of ~211 and ~817, assuming every player stays online the whole game.",
+      },
+      {
+        title: "Shrank replay data ~190x by storing dice results instead of physics",
+        point: "A full turn replays from ~84 bytes instead of ~16 KB of recorded motion, and every roll stays a fair 1/6 on any device.",
+        detail:
+          "Dice values come from the RNG before the Forge2D animation starts and the physics is purely cosmetic, so each face is exactly 1/6 on any device or frame rate. Recording 60 fps position and rotation for two dice would take ~16 KB per turn; the stored JSON averages 84 bytes and never exceeds 120. A damping ramp caps every roll's animation at 0.5–3.0 s, so a turn never stalls waiting on jittering bodies to settle.",
+      },
+      {
+        title: "Reduced reads ~270x by moving from a polling to a live listener architecture",
+        point: "Opponents' moves now appear in under a second, down from ~5 minutes on the original 10-minute poll.",
+        detail:
+          "The first version polled a Google Sheets backend every 10 minutes. Firestore listeners now push only changed documents: ~18 reads per open hour for a typical game, where polling every 10 s would read ~4,900 and exhaust the free tier's 50k daily reads in ~10 player-hours. The merged stream waits for every game to load and renders the list once instead of up to 21 times for 10 games.",
+      },
+      {
+        title: "Eliminated 75% of writes in update races with optimistic concurrency",
+        point: "When several players' apps advance the same game at once, exactly one update lands and no score is ever lost.",
+        detail:
+          "Every client runs the same pure Dart rules engine, covered by 43 unit tests over a written decision table, and advances the game through a transaction that first re-checks the round and status. With 4 clients racing, one commit lands (5 writes instead of 20), and a client holding a stale snapshot can't overwrite newer scores.",
+      },
+      {
+        title: "Enforced turn time limits at 0 extra reads by removing the need for a scheduler",
+        point: "Players' own apps catch overdue turns, where a cron job would need the paid plan and use 29% of the free read quota.",
+        detail:
+          "Each open app re-checks its games every 60 s against state its listeners already hold, and only a real timeout writes anything. A scheduled Cloud Function would need the paid Blaze plan and, at minimum, 1,440 runs and 14,400 reads a day for just 10 active games.",
+      },
+      {
+        title: "Secured multiplayer at $0 by making Firestore security rules the backend",
+        point: "The database itself enforces who can see and change each game and rejects duplicate turns, with 0 extra reads.",
+        detail:
+          "Rules verify membership, keep the host and invite list immutable, and make turns append-only. Each turn's {round}_{email} document ID works as an idempotency key, so a double-tapped submit is rejected atomically instead of needing a check-then-write query (~17 reads per game) that could still race. Covered by 17 tests against the Firebase Emulator Suite.",
+      },
     ],
     tags: ["Dart", "Flutter", "Riverpod", "Flame", "Forge2D", "Firebase", "Cloud Firestore"],
     links: [
@@ -203,9 +362,24 @@ const projects: ProjectSeed[] = [
     summary:
       "A Spotify playlist generator that builds a playlist from any sequence of BPM segments over any length of time: say 10 minutes of high BPM, a 3-minute low-BPM break, then a ramp back up, shaped to fit a workout, run, or ride.",
     highlights: [
-      "React + Vite client in TypeScript with an Express / Node.js server between it and the Spotify Web API.",
-      "Track discovery seeded by tempo: a target BPM combined with seed tracks, artists, and genres.",
-      "Now runs on mock data after Spotify's February 2026 API changes cut off the endpoints it relied on.",
+      {
+        title: "Kept the Spotify client secret off every user's device with an Express API in the middle",
+        point: "The React client only ever talked to the Node.js server, which ran Spotify's OAuth authorization-code flow: 0 secrets shipped to the browser.",
+        detail:
+          "The server exchanged authorization codes for tokens and proxied Spotify Web API calls, so credentials stayed server-side while the React + Vite client handled the segment builder and timeline.",
+      },
+      {
+        title: "Saved any playlist of up to 100 tracks in 2 Spotify API calls",
+        point: "One call creates the playlist and one adds every track, chunked at Spotify's 100-item limit for longer sessions.",
+        detail:
+          "Track discovery asks the recommendations endpoint for 50 candidates per BPM segment in one request, seeded with a target tempo and up to 5 genres, the API's maximum.",
+      },
+      {
+        title: "Kept the app fully demoable after Spotify's 2026 API changes by swapping 1 module",
+        point: "Spotify's February 2026 changes removed the endpoints it relied on; a mock module with identical function signatures kept every screen working.",
+        detail:
+          "Sign-in, recommendations, genre listing, and playlist creation keep the same interface but return tempo-matched mock tracks (within ±5 BPM) with simulated latency, so the UI code didn't have to know.",
+      },
     ],
     tags: ["TypeScript", "React", "Vite", "NodeJS", "Express"],
     demoUrl: "https://pacemakr.com",
@@ -218,10 +392,30 @@ const projects: ProjectSeed[] = [
     summary:
       "An analytics dashboard for a private fantasy baseball league (\"It's like Moneyball, but with less money\"): season trends, head-to-head matchups, team profiles, and league leaders across every scoring category.",
     highlights: [
-      "Serverless backend: a Google Apps Script web app exposes the league's data as JSON to a React + Vite single-page app.",
-      "Score Ceiling figures (each team's weekly maximum per stat) are generated on the backend and plotted against actuals.",
-      "Direction-aware ranking: lower-is-better categories like ERA and WHIP sort ascending, and rate stats keep three-decimal precision.",
-      "Recharts views built on memoized data transforms and custom tooltips, with series highlight on hover and pin on click.",
+      {
+        title: "Computed every team's daily score ceiling across 11 categories with a lineup optimizer",
+        point: "For each stat it fills the 18 starting slots with the best eligible players, showing what a perfect lineup would have scored next to what the team actually did.",
+        detail:
+          "Players are sorted per category (ascending for ERA and WHIP, with ties broken on innings pitched) and placed in the scarcest eligible slot first (C, SS, 2B, 3B, 1B, OF, then Util; SP, RP, then P), so a multi-position player isn't wasted in a flexible slot. Daily ceilings roll up into weekly totals.",
+      },
+      {
+        title: "Made nightly syncs and backfills idempotent across 8 data tables",
+        point: "Rows upsert on composite keys, so rerunning a day or backfilling a season updates rows in place and creates 0 duplicates.",
+        detail:
+          "Each upsert reads the sheet once into a key-to-row map for constant-time lookups and appends all new rows in a single write. A time-driven trigger runs the sync nightly between 11 PM and midnight and logs failures to a SystemLogs tab.",
+      },
+      {
+        title: "Loaded the whole dashboard in 1 HTTP request from a serverless Apps Script API",
+        point: "A single endpoint returns team metadata, weekly stats, matchups, score ceilings, and season stats as one JSON payload, with no server to run or pay for.",
+        detail:
+          "The React + Vite front end builds its Recharts views on memoized transforms with custom tooltips. Lower-is-better categories like ERA and WHIP rank ascending, and rate stats keep three-decimal precision.",
+      },
+      {
+        title: "Capped Yahoo API usage at 900 requests per hour with a cache-backed rate limiter",
+        point: "A shared counter in Apps Script's CacheService refuses calls past the limit, protecting the developer account during syncs.",
+        detail:
+          "OAuth 2.0 handles Yahoo sign-in, and deeply nested responses (arrays that shift into objects) are flattened into pivot-friendly rows. Backfills bypass the limiter, so they're throttled by date range.",
+      },
     ],
     tags: ["JavaScript", "React", "Vite", "Recharts", "Google App Script"],
     screenshots: [

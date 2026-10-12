@@ -32,13 +32,17 @@ export interface GraphAttribute {
   category?: SkillCategory;
 }
 
+/** A highlight is plain text, or a scannable headline with a one-line point
+ * and, optionally, longer detail behind an expander. */
+export type Highlight = string | { title: string; point: string; detail?: string };
+
 export interface GraphNode {
   id: string;
   type: NodeType;
   title: string;
   subtitle?: string;
   summary?: string;
-  highlights?: string[];
+  highlights?: Highlight[];
   /** A few short phrases shown directly on the graph card. */
   cardHighlights?: string[];
   /** Project detail section media: an embeddable live demo URL wins over screenshots. */
