@@ -280,7 +280,7 @@ const contact: GraphNode = {
     { label: "Email", url: "mailto:bjostad@gmail.com" },
     { label: "GitHub", url: "https://github.com/bjostad" },
     { label: "LinkedIn", url: "https://linkedin.com/in/bjostad" },
-    { label: "Resume (PDF)", url: "/resume.pdf" },
+    { label: "Resume (PDF)", url: "/resume.pdf#view=FitH" },
   ],
   position: { x: 0.85, y: 0.7 },
 };
